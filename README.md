@@ -1,8 +1,10 @@
 # Stormbound
 
-Mobile-first web TCG — **Dawnpack** vs **Pack of the Dead**. Client-only React + Vite + TypeScript + Tailwind MVP.
+Mobile-first web TCG — **Dawnpack** vs **Pack of the Dead**. Client-only React + Vite + TypeScript + Tailwind.
 
-Standalone app at `/workspace/stormbound`. Does **not** touch ab-creative-world or abbytes sites.
+Live: **https://abbytes.github.io/stormbound/**
+
+Standalone app at `/workspace/stormbound`. Does **not** touch ab-creative-world or other sites.
 
 ## Quick start
 
@@ -12,45 +14,36 @@ npm install
 npm run dev
 ```
 
-Open the local URL (usually `http://localhost:5173`) on a phone or narrow browser window.
-
 ### Production build
 
 ```bash
-npm run build
+npm run build   # base: /stormbound/
 npm run preview
 ```
 
-`preview` serves the `dist/` folder. You can also static-serve `dist/` with any HTTP server.
+Deploy: copy `dist/` (+ `.nojekyll`) to the `gh-pages` branch and force-push.
 
-## What’s in the MVP
+## UI shell
 
-- **Home** — title, Play Tutorial (Dawn or Pack), Binder
-- **Battle** — 5-slot Ashfall-style floor, Storm economy, draw/main/hunt/dusk loop, simple AI opponent, win by Binder HP 0 or 3 Storm Charges
-- **Binder** — page-turn book UI (Dawnpack pp.1–2, Pack pp.3–4, Relics & Storm), tap → inspect overlay (Cost · ATK/DEF/HP · ability · rarity · tags)
-- **Card pool** — 20-card tutorial decks + 40-card constructed data (IDs 1–40)
-- **SFX** — page turn, inspect, Bond, Surge, Apex, Dawn horn (stubs in `public/audio/`)
+Premium portrait TCG layout:
 
-## Factions & keywords
+- Enemy / player binder headers with gradient HP bars
+- 3-lane battlefield (Enemy Slot / Open Slot dashed outlines)
+- Tall cards: name · cost gem · art · ability · ATK / Guard / rarity / HP
+- APEX rarity thick gold glow border
+- Selected-card action row (Attack / Guard / Apex)
+- Vertical **End Turn** on the right edge
+- Fanned hand, Storm ⚡ + Apex 🔥 resources
+- Bottom nav: Home · Battle · Cards · Deck · Shop
 
-- Dawnpack (cyan) · Pack of the Dead (violet)
-- Keywords: Surge, Ward, Hunt, Bond, Apex, Swift, Flight, Guard
+## Engine
 
-## Project layout
+- Turn loop: Dawn → Draw → Main → Hunt → Dusk
+- Win: binder HP 0 or 3 Storm Charges (Apex power)
+- Tutorial decks + 40-card constructed pool (IDs 1–40)
+- Page-turn binder under **Cards**
+- SFX in `public/audio/` (paths honor Vite `base`)
 
-```
-src/data/cards.ts     — all card defs + decks + binder pages
-src/game/engine.ts    — turn loop + AI
-src/game/audio.ts     — SFX helpers
-src/screens/          — Home, Battle, Binder
-src/components/       — CardFace, BoardSlot, InspectOverlay
-public/audio/         — wav stubs from stormbound-sfx
-```
+## Preview shots
 
-## Known gaps
-
-- Placeholder gradient art (no illustrated portraits yet)
-- AI is greedy/simple; blockers are auto-assigned
-- Constructed deck builder not in MVP (pool is in data for later)
-- Some relic/apex edge cases simplified for demo stability
-- Autoplay may mute SFX until first user tap
+See `preview/battle_empty.png` and `preview/battle_action_row.png`.
