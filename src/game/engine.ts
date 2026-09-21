@@ -68,6 +68,8 @@ export interface CombatFx {
 
 export interface GameState {
   turn: number
+  playerDawnCount: number
+  enemyDawnCount: number
   active: Side
   phase: Phase
   player: PlayerState
@@ -165,6 +167,8 @@ export function createTutorialGame(playerFaction: 'dawn' | 'pack'): GameState {
   )
   const state: GameState = {
     turn: 1,
+    playerDawnCount: 0,
+    enemyDawnCount: 0,
     active: 'player',
     phase: 'dawn',
     player,
@@ -244,8 +248,10 @@ function checkWin(state: GameState): GameState {
 export function runDawn(state: GameState): GameState {
   if (state.phase === 'gameover') return state
   const active = sideOf(state, state.active)
-  // Hearthstone-style: crystals ramp permanently; refill to max each Dawn
-  const stormMax = Math.min(active.stormCap, active.stormMax + 1)
+  // Per-side dawn count → crystal max (HS). Never depends on leftover current storm.
+  const dawnKey = state.active === 'player' ? 'playerDawnCount' : 'enemyDawnCount'
+  const dawnCount = state[dawnKey] + 1
+  const stormMax = Math.min(active.stormCap, dawnCount)
   const storm = stormMax
   const nextActive: PlayerState = {
     ...active,
@@ -274,6 +280,7 @@ export function runDawn(state: GameState): GameState {
     attackSourceUid: null,
     selectedHand: null,
     selectedBeastUid: null,
+    [dawnKey]: dawnCount,
     [state.active]: nextActive,
   }
   const who = state.active === 'player' ? 'Your' : 'Enemy'

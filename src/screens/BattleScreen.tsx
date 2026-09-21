@@ -718,10 +718,10 @@ export function BattleScreen({ faction, onQuit }: Props) {
                 ⚡
               </span>
               <span className="text-xs font-black text-sky-200 tabular-nums">
-                {state.player.storm}/{state.player.stormMax || state.player.stormCap}
+                {state.player.storm}/{Math.max(state.player.stormMax, state.playerDawnCount, 1)}
               </span>
-              <span className="text-[0.55rem] font-bold text-white/45 ml-1">
-                T{state.turn}
+              <span className="text-[0.55rem] font-bold text-amber-300/80 ml-1">
+                Dawn {state.playerDawnCount || 1}
               </span>
             </div>
             <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-black/50 border border-orange-400/30">
