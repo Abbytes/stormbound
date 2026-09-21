@@ -1,0 +1,15 @@
+Stormbound Pocket SFX (mono 44.1kHz)
+/workspace/stormbound-sfx/pocket/
+
+place_card.wav     — Active / Bench put
+energy_attach.wav  — attach 1 Energy / turn
+evolve.wav         — Basic → Stage / Apex evolve
+attack_hit.wav     — Active attack
+surge_bolt.wav     — Surge keyword hit
+ko_basic.wav       — KO Basic/Stage (+1 pt)
+ko_apex.wav        — KO Apex/ex (+2 pts)
+point_ding.wav     — point circle fill
+win_sting.wav      — first to 3
+pack_howl.wav      — Pack faction sting
+page_turn.wav      — collection swipe
+inspect_chime.wav  — card detail open
