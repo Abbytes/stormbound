@@ -82,8 +82,8 @@ export function BattleScreen({ faction, onQuit }: Props) {
       // Prefer non-phase toasts over phase banners when both fire
       setToast((cur) => (fx.kind === 'phase' && cur && cur.kind !== 'phase' ? cur : fx))
       if (fx.kind === 'enter') playSfx('iron_clink', 0.45)
-      if (fx.kind === 'damage') playSfx('surge_bolt', 0.4)
-      if (fx.kind === 'kill') playSfx('apex_kill', 0.4)
+      if (fx.kind === 'damage') playSfx('surge_bolt', 0.5)
+      if (fx.kind === 'kill') playSfx('apex_kill', 0.55)
       if (fx.kind === 'phase' && state.active === 'player') playSfx('dawn_horn', 0.2)
       if (fx.amount && fx.targetUid) {
         const uid = fx.targetUid
@@ -284,7 +284,7 @@ export function BattleScreen({ faction, onQuit }: Props) {
       )
       return
     }
-    playSfx('surge_bolt', 0.3)
+    playSfx('surge_bolt', 0.5)
     setState((s) => beginAttack(s, selectedBeast.uid))
     setHint(
       hasEnemyGuard(state, 'enemy')
@@ -302,7 +302,7 @@ export function BattleScreen({ faction, onQuit }: Props) {
   const doApex = () => {
     if (!selectedBeast || selectedBeast.side !== 'player') return
     setState((s) => triggerApexOrBank(s, selectedBeast.slot))
-    playSfx('apex_kill', 0.4)
+    playSfx('apex_kill', 0.55)
   }
 
   const doBless = () => {
@@ -482,7 +482,7 @@ export function BattleScreen({ faction, onQuit }: Props) {
                   setState((s) => cancelAttack(s))
                   return
                 }
-                if (state.phase === 'main') playSfx('dawn_horn', 0.25)
+                if (state.phase === 'main') playSfx('dawn_horn', 0.4)
                 else playSfx('surge_bolt', 0.35)
                 setState((s) => endTurn(s))
               }}
