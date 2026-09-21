@@ -25,6 +25,7 @@ export interface CardDef {
   ability: string
   tags: string[]
   tutorial?: boolean
+  art?: string
   constructed?: boolean
 }
 

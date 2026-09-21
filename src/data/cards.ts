@@ -14,6 +14,7 @@ export const CARDS: CardDef[] = [
     tags: ['Binder', 'Dawnpack', 'Leader'],
     tutorial: true,
     constructed: true,
+    art: 'art/cards/card_1.jpg',
   },
   {
     id: 2,
@@ -27,6 +28,7 @@ export const CARDS: CardDef[] = [
     tags: ['Binder', 'Pack of the Dead', 'Leader'],
     tutorial: true,
     constructed: true,
+    art: 'art/cards/card_2.jpg',
   },
 
   // —— Dawnpack beasts (starter / tutorial) ——
@@ -45,6 +47,7 @@ export const CARDS: CardDef[] = [
     tags: ['Beast', 'Dawnpack', 'Cub'],
     tutorial: true,
     constructed: true,
+    art: 'art/cards/card_3.jpg',
   },
   {
     id: 4,
@@ -61,6 +64,7 @@ export const CARDS: CardDef[] = [
     tags: ['Beast', 'Dawnpack', 'Stag'],
     tutorial: true,
     constructed: true,
+    art: 'art/cards/card_4.jpg',
   },
   {
     id: 5,
@@ -77,6 +81,7 @@ export const CARDS: CardDef[] = [
     tags: ['Beast', 'Dawnpack', 'Fox'],
     tutorial: true,
     constructed: true,
+    art: 'art/cards/card_5.jpg',
   },
   {
     id: 6,
@@ -93,6 +98,7 @@ export const CARDS: CardDef[] = [
     tags: ['Beast', 'Dawnpack', 'Wolf'],
     tutorial: true,
     constructed: true,
+    art: 'art/cards/card_6.jpg',
   },
   {
     id: 7,
@@ -109,6 +115,7 @@ export const CARDS: CardDef[] = [
     tags: ['Beast', 'Dawnpack', 'Boar'],
     tutorial: true,
     constructed: true,
+    art: 'art/cards/card_7.jpg',
   },
   {
     id: 8,
@@ -125,6 +132,7 @@ export const CARDS: CardDef[] = [
     tags: ['Beast', 'Dawnpack', 'Lynx'],
     tutorial: true,
     constructed: true,
+    art: 'art/cards/card_8.jpg',
   },
   {
     id: 9,
@@ -141,6 +149,7 @@ export const CARDS: CardDef[] = [
     tags: ['Beast', 'Dawnpack', 'Elk'],
     tutorial: true,
     constructed: true,
+    art: 'art/cards/card_9.jpg',
   },
   {
     id: 10,
@@ -157,6 +166,7 @@ export const CARDS: CardDef[] = [
     tags: ['Beast', 'Dawnpack', 'Wyvern', 'Apex'],
     tutorial: true,
     constructed: true,
+    art: 'art/cards/card_10.jpg',
   },
 
   // —— Pack of the Dead beasts (starter) ——
@@ -175,6 +185,7 @@ export const CARDS: CardDef[] = [
     tags: ['Beast', 'Pack of the Dead', 'Pup'],
     tutorial: true,
     constructed: true,
+    art: 'art/cards/card_11.jpg',
   },
   {
     id: 12,
@@ -191,6 +202,7 @@ export const CARDS: CardDef[] = [
     tags: ['Beast', 'Pack of the Dead', 'Jackal'],
     tutorial: true,
     constructed: true,
+    art: 'art/cards/card_12.jpg',
   },
   {
     id: 13,
@@ -207,6 +219,7 @@ export const CARDS: CardDef[] = [
     tags: ['Beast', 'Pack of the Dead', 'Stag'],
     tutorial: true,
     constructed: true,
+    art: 'art/cards/card_13.jpg',
   },
   {
     id: 14,
@@ -223,6 +236,7 @@ export const CARDS: CardDef[] = [
     tags: ['Beast', 'Pack of the Dead', 'Wolf'],
     tutorial: true,
     constructed: true,
+    art: 'art/cards/card_14.jpg',
   },
   {
     id: 15,
@@ -239,6 +253,7 @@ export const CARDS: CardDef[] = [
     tags: ['Beast', 'Pack of the Dead', 'Hound'],
     tutorial: true,
     constructed: true,
+    art: 'art/cards/card_15.jpg',
   },
   {
     id: 16,
@@ -255,6 +270,7 @@ export const CARDS: CardDef[] = [
     tags: ['Beast', 'Pack of the Dead', 'Panther'],
     tutorial: true,
     constructed: true,
+    art: 'art/cards/card_16.jpg',
   },
   {
     id: 17,
@@ -271,6 +287,7 @@ export const CARDS: CardDef[] = [
     tags: ['Beast', 'Pack of the Dead', 'Drake'],
     tutorial: true,
     constructed: true,
+    art: 'art/cards/card_17.jpg',
   },
   {
     id: 18,
@@ -287,6 +304,7 @@ export const CARDS: CardDef[] = [
     tags: ['Beast', 'Pack of the Dead', 'Tyrant', 'Apex'],
     tutorial: true,
     constructed: true,
+    art: 'art/cards/card_18.jpg',
   },
 
   // —— Relics ——
@@ -302,6 +320,7 @@ export const CARDS: CardDef[] = [
     tags: ['Relic', 'Hunt'],
     tutorial: true,
     constructed: true,
+    art: 'art/cards/card_19.jpg',
   },
   {
     id: 20,
@@ -315,6 +334,7 @@ export const CARDS: CardDef[] = [
     tags: ['Relic', 'Storm', 'Crown'],
     tutorial: true,
     constructed: true,
+    art: 'art/cards/card_20.jpg',
   },
 
   // —— +10 constructed ——
@@ -332,6 +352,7 @@ export const CARDS: CardDef[] = [
     ability: 'Swift armored scout of the Dawnpack.',
     tags: ['Beast', 'Dawnpack', 'Hare'],
     constructed: true,
+    art: 'art/cards/faction_dawn.jpg',
   },
   {
     id: 22,
@@ -347,6 +368,7 @@ export const CARDS: CardDef[] = [
     ability: 'Flight — spectral scout of the Deadpack.',
     tags: ['Beast', 'Pack of the Dead', 'Crow'],
     constructed: true,
+    art: 'art/cards/faction_pack.jpg',
   },
   {
     id: 23,
@@ -362,6 +384,7 @@ export const CARDS: CardDef[] = [
     ability: 'Guard · Ward — living bulwark of dawnsteel.',
     tags: ['Beast', 'Dawnpack', 'Bear'],
     constructed: true,
+    art: 'art/cards/faction_dawn.jpg',
   },
   {
     id: 24,
@@ -377,6 +400,7 @@ export const CARDS: CardDef[] = [
     ability: 'Hunt · Bond — packs tight, strikes harder.',
     tags: ['Beast', 'Pack of the Dead', 'Wolf'],
     constructed: true,
+    art: 'art/cards/faction_pack.jpg',
   },
   {
     id: 25,
@@ -392,6 +416,7 @@ export const CARDS: CardDef[] = [
     ability: 'Ward · Surge — consecrated lightning fangs.',
     tags: ['Beast', 'Dawnpack', 'Hound'],
     constructed: true,
+    art: 'art/cards/faction_dawn.jpg',
   },
   {
     id: 26,
@@ -407,6 +432,7 @@ export const CARDS: CardDef[] = [
     ability: 'Hunt · Surge — grave-born ambush predator.',
     tags: ['Beast', 'Pack of the Dead', 'Lynx'],
     constructed: true,
+    art: 'art/cards/faction_pack.jpg',
   },
   {
     id: 27,
@@ -419,6 +445,7 @@ export const CARDS: CardDef[] = [
     ability: 'Bonded beasts you control gain +1 DEF.',
     tags: ['Relic', 'Bond'],
     constructed: true,
+    art: 'art/cards/faction_neutral.jpg',
   },
   {
     id: 28,
@@ -431,6 +458,7 @@ export const CARDS: CardDef[] = [
     ability: 'Once per turn: Hunt-mark a beast on the floor.',
     tags: ['Relic', 'Hunt', 'Horn'],
     constructed: true,
+    art: 'art/cards/faction_neutral.jpg',
   },
   {
     id: 29,
@@ -443,6 +471,7 @@ export const CARDS: CardDef[] = [
     ability: 'Deal 1 Surge damage to two beasts.',
     tags: ['Storm Magic', 'Lightning'],
     constructed: true,
+    art: 'art/cards/faction_neutral.jpg',
   },
   {
     id: 30,
@@ -458,6 +487,7 @@ export const CARDS: CardDef[] = [
     ability: 'Apex: deal 2 lightning to all enemy beasts.',
     tags: ['Beast', 'Dawnpack', 'Stag', 'Apex'],
     constructed: true,
+    art: 'art/cards/faction_dawn.jpg',
   },
 
   // —— Invented 31–40 (thematic constructed finish) ——
@@ -475,6 +505,7 @@ export const CARDS: CardDef[] = [
     ability: 'Bond · Swift — if Bonded, gain +1 ATK until Dusk.',
     tags: ['Beast', 'Dawnpack', 'Cub'],
     constructed: true,
+    art: 'art/cards/faction_dawn.jpg',
   },
   {
     id: 32,
@@ -490,6 +521,7 @@ export const CARDS: CardDef[] = [
     ability: 'Flight · Bond — draw 1 if Bonded over a corpse lane.',
     tags: ['Beast', 'Pack of the Dead', 'Vulture'],
     constructed: true,
+    art: 'art/cards/faction_pack.jpg',
   },
   {
     id: 33,
@@ -505,6 +537,7 @@ export const CARDS: CardDef[] = [
     ability: 'Guard · Bond → adjacent allies gain Ward until Dusk.',
     tags: ['Beast', 'Dawnpack', 'Ram'],
     constructed: true,
+    art: 'art/cards/faction_dawn.jpg',
   },
   {
     id: 34,
@@ -520,6 +553,7 @@ export const CARDS: CardDef[] = [
     ability: 'Surge · Ward — coils of violet lightning.',
     tags: ['Beast', 'Pack of the Dead', 'Serpent'],
     constructed: true,
+    art: 'art/cards/faction_pack.jpg',
   },
   {
     id: 35,
@@ -535,6 +569,7 @@ export const CARDS: CardDef[] = [
     ability: 'Flight · Guard — skyward shield of the ruined keep.',
     tags: ['Beast', 'Dawnpack', 'Griffin'],
     constructed: true,
+    art: 'art/cards/faction_dawn.jpg',
   },
   {
     id: 36,
@@ -550,6 +585,7 @@ export const CARDS: CardDef[] = [
     ability: 'Guard · Bond → all Pack beasts gain +0/+1 this turn.',
     tags: ['Beast', 'Pack of the Dead', 'Bear'],
     constructed: true,
+    art: 'art/cards/faction_pack.jpg',
   },
   {
     id: 37,
@@ -562,6 +598,7 @@ export const CARDS: CardDef[] = [
     ability: 'At Dawn: if you control a Bonded beast, bank 1 Storm Charge (max once).',
     tags: ['Relic', 'Charge'],
     constructed: true,
+    art: 'art/cards/faction_neutral.jpg',
   },
   {
     id: 38,
@@ -574,6 +611,7 @@ export const CARDS: CardDef[] = [
     ability: 'Deal 1 Surge to a beast. If it was Hunt-marked, draw 1.',
     tags: ['Storm Magic', 'Lightning'],
     constructed: true,
+    art: 'art/cards/faction_neutral.jpg',
   },
   {
     id: 39,
@@ -586,6 +624,7 @@ export const CARDS: CardDef[] = [
     ability: 'Deal 2 Surge to a beast and 1 to the enemy Binder.',
     tags: ['Storm Magic', 'Lightning'],
     constructed: true,
+    art: 'art/cards/faction_neutral.jpg',
   },
   {
     id: 40,
@@ -601,6 +640,7 @@ export const CARDS: CardDef[] = [
     ability: 'Apex once: Hunt-mark all enemy beasts. Surge applies this Hunt.',
     tags: ['Beast', 'Pack of the Dead', 'Alpha', 'Apex'],
     constructed: true,
+    art: 'art/cards/faction_pack.jpg',
   },
 ]
 

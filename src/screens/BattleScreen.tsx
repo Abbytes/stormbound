@@ -5,15 +5,23 @@ import {
   selectHand,
   selectBeast,
   endTurn,
-  toggleAttack,
   runEnemyTurn,
-  bankStormCharge,
   useBinderAbility,
   useStormCrown,
   useKeepHorn,
   canPlayToSlot,
+  canBeastAttack,
+  beginAttack,
+  cancelAttack,
+  resolveAttack,
+  toggleGuard,
+  triggerApexOrBank,
+  isValidAttackTarget,
+  hasEnemyGuard,
+  clearFx,
   BINDER_MAX_HP,
   type GameState,
+  type CombatFx,
 } from '../game/engine'
 import { cardById } from '../data/cards'
 import { BoardSlot } from '../components/BoardSlot'
@@ -47,9 +55,12 @@ function HpBar({
   )
 }
 
-function shortName(name: string): string {
-  // Keep full binder names — they fit the reference style
-  return name
+const PHASE_LABEL: Record<string, string> = {
+  dawn: 'DAWN',
+  main: 'MAIN',
+  hunt: 'HUNT',
+  dusk: 'DUSK',
+  gameover: 'END',
 }
 
 export function BattleScreen({ faction, onQuit }: Props) {
@@ -57,7 +68,48 @@ export function BattleScreen({ faction, onQuit }: Props) {
   const [inspect, setInspect] = useState<CardDef | null>(null)
   const [busy, setBusy] = useState(false)
   const [hint, setHint] = useState('The gates open. Summon a beast from your hand.')
+  const [toast, setToast] = useState<CombatFx | null>(null)
+  const [dmgFlash, setDmgFlash] = useState<Record<string, number>>({})
   const prevLogLen = useRef(0)
+  const seenFx = useRef(new Set<number>())
+
+  // FX → toast + damage numbers
+  useEffect(() => {
+    const timers: number[] = []
+    for (const fx of state.fx) {
+      if (seenFx.current.has(fx.id)) continue
+      seenFx.current.add(fx.id)
+      // Prefer non-phase toasts over phase banners when both fire
+      setToast((cur) => (fx.kind === 'phase' && cur && cur.kind !== 'phase' ? cur : fx))
+      if (fx.kind === 'enter') playSfx('iron_clink', 0.45)
+      if (fx.kind === 'damage') playSfx('surge_bolt', 0.4)
+      if (fx.kind === 'kill') playSfx('apex_kill', 0.4)
+      if (fx.kind === 'phase' && state.active === 'player') playSfx('dawn_horn', 0.2)
+      if (fx.amount && fx.targetUid) {
+        const uid = fx.targetUid
+        const amt = fx.amount
+        setDmgFlash((d) => ({ ...d, [uid]: amt }))
+        timers.push(
+          window.setTimeout(() => {
+            setDmgFlash((d) => {
+              const n = { ...d }
+              delete n[uid]
+              return n
+            })
+          }, 900),
+        )
+      }
+      const id = fx.id
+      const delay = fx.kind === 'phase' ? 900 : 1600
+      timers.push(
+        window.setTimeout(() => {
+          setToast((cur) => (cur?.id === id ? null : cur))
+          setState((s) => clearFx(s, id))
+        }, delay),
+      )
+    }
+    return () => timers.forEach((t) => clearTimeout(t))
+  }, [state.fx, state.active])
 
   useEffect(() => {
     const msgs = state.log.slice(prevLogLen.current)
@@ -72,30 +124,30 @@ export function BattleScreen({ faction, onQuit }: Props) {
       )
         playSfx('surge_bolt')
       else if (lower.includes('bond')) {
-        if (
-          state.playerFaction === 'pack' ||
-          lower.includes('pack') ||
-          lower.includes('wraith') ||
-          lower.includes('ossuary') ||
-          lower.includes('howl')
+        playSfx(
+          state.playerFaction === 'pack' || lower.includes('pack')
+            ? 'bond'
+            : 'iron_clink',
         )
-          playSfx('bond')
-        else playSfx('iron_clink')
       } else if (lower.includes('dawn —')) playSfx('dawn_horn', 0.4)
-      else if (lower.includes('howl tyrant')) playSfx('pack_howl')
     }
     if (msgs.length) setHint(msgs[msgs.length - 1])
   }, [state.log, state.playerFaction])
 
   useEffect(() => {
-    if (state.active !== 'enemy' || state.phase === 'gameover' || busy) return
+    if (state.active !== 'enemy' || state.phase === 'gameover') return
+    let cancelled = false
     setBusy(true)
-    const t = setTimeout(() => {
+    const t = window.setTimeout(() => {
+      if (cancelled) return
       setState((s) => runEnemyTurn(s))
       setBusy(false)
-    }, 700)
-    return () => clearTimeout(t)
-  }, [state.active, state.phase, state.turn, busy])
+    }, 600)
+    return () => {
+      cancelled = true
+      window.clearTimeout(t)
+    }
+  }, [state.active, state.phase, state.turn])
 
   const selectedCard =
     state.selectedHand !== null
@@ -106,17 +158,22 @@ export function BattleScreen({ faction, onQuit }: Props) {
       state.enemy.beasts.find((b) => b?.uid === state.selectedBeastUid) ??
       null
     : null
+
   const waitingPlay =
     state.phase === 'main' &&
     state.active === 'player' &&
     selectedCard?.type === 'beast' &&
     state.selectedHand !== null &&
-    state.player.beasts.some(
-      (b, i) => !b && canPlayToSlot(state, state.selectedHand!, i),
-    )
+    state.uiMode !== 'attack'
+
+  const attacking = state.uiMode === 'attack' && !!state.attackSourceUid
+  const faceLegal =
+    attacking &&
+    isValidAttackTarget(state, state.attackSourceUid!, { kind: 'face' })
 
   const onSlotPlayer = (slot: number) => {
     if (waitingPlay && state.selectedHand !== null) {
+      if (!canPlayToSlot(state, state.selectedHand, slot)) return
       const before = state
       const next = playCard(before, state.selectedHand, slot)
       if (next !== before) {
@@ -127,40 +184,53 @@ export function BattleScreen({ faction, onQuit }: Props) {
           playSfx('iron_clink', 0.4)
         }
         if (c.keywords.includes('apex')) playSfx('apex_kill')
-        setHint(`${c.name} enters the field.`)
+        setHint(`${c.name} enters the arena.`)
       }
       setState(next)
       return
     }
     const beast = state.player.beasts[slot]
-    if (state.phase === 'hunt' && state.huntStep === 'declare' && beast) {
-      setState((s) => toggleAttack(s, slot))
-      setHint(
-        beast.attacking
-          ? `${cardById(beast.cardId).name} stands down.`
-          : `${cardById(beast.cardId).name}: ready to Attack.`,
-      )
+    if (!beast) return
+
+    if (attacking) {
+      setState((s) => cancelAttack(s))
       return
     }
-    if (state.phase === 'main' && state.active === 'player' && beast) {
-      if (
-        state.player.binderId === 1 &&
-        !state.player.binderAbilityUsed &&
-        state.player.storm >= 1 &&
-        cardById(beast.cardId).faction === 'dawn'
-      ) {
-        // first tap selects; double via action row for bless — just select
-      }
+
+    if (state.active === 'player' && (state.phase === 'main' || state.phase === 'hunt')) {
       setState((s) => selectBeast(s, beast.uid))
       setHint(
-        `${cardById(beast.cardId).name}: attack, guard, or unleash Apex.`,
+        `${cardById(beast.cardId).name}: Attack, Guard, or Apex.`,
       )
       return
     }
-    if (beast) openInspect(cardById(beast.cardId), setInspect)
+    openInspect(cardById(beast.cardId), setInspect)
   }
 
   const onSlotEnemy = (slot: number) => {
+    const beast = state.enemy.beasts[slot]
+
+    if (attacking && beast) {
+      if (
+        isValidAttackTarget(state, state.attackSourceUid!, {
+          kind: 'beast',
+          uid: beast.uid,
+        })
+      ) {
+        playSfx('surge_bolt')
+        setState((s) =>
+          resolveAttack(s, { kind: 'beast', uid: beast.uid }),
+        )
+        return
+      }
+      setHint(
+        hasEnemyGuard(state, 'enemy')
+          ? 'A Guardian blocks the path — strike Guard first.'
+          : 'Invalid target.',
+      )
+      return
+    }
+
     if (state.phase === 'main' && state.active === 'player') {
       const hasCrown = state.player.relics.some(
         (r) => r.cardId === 20 && !r.usedThisTurn,
@@ -168,21 +238,31 @@ export function BattleScreen({ faction, onQuit }: Props) {
       const hasHorn = state.player.relics.some(
         (r) => r.cardId === 28 && !r.usedThisTurn,
       )
-      if (hasHorn && state.enemy.beasts[slot]) {
+      if (hasHorn && beast) {
         setState((s) => useKeepHorn(s, 'enemy', slot))
         return
       }
-      if (hasCrown && state.enemy.beasts[slot]?.huntMarked) {
+      if (hasCrown && beast?.huntMarked) {
         setState((s) => useStormCrown(s, 'enemy', slot))
         playSfx('surge_bolt')
         return
       }
     }
-    const beast = state.enemy.beasts[slot]
     if (beast) {
       setState((s) => selectBeast(s, beast.uid))
       openInspect(cardById(beast.cardId), setInspect)
     }
+  }
+
+  const onFaceEnemy = () => {
+    if (!attacking || !faceLegal) {
+      if (attacking && hasEnemyGuard(state, 'enemy')) {
+        setHint('Guardians must be broken before the Binder.')
+      }
+      return
+    }
+    playSfx('surge_bolt')
+    setState((s) => resolveAttack(s, { kind: 'face' }))
   }
 
   const playNonBeast = () => {
@@ -196,45 +276,33 @@ export function BattleScreen({ faction, onQuit }: Props) {
 
   const doAttack = () => {
     if (!selectedBeast || selectedBeast.side !== 'player') return
-    if (state.phase === 'hunt' && state.huntStep === 'declare') {
-      setState((s) => toggleAttack(s, selectedBeast.slot))
-      playSfx('surge_bolt')
-      setHint(`${cardById(selectedBeast.cardId).name} — Attack toggled.`)
+    if (!canBeastAttack(state, selectedBeast)) {
+      setHint(
+        selectedBeast.attackedThisTurn
+          ? 'Already struck this turn.'
+          : 'Summoning sickness — wait until next Dawn (or need Swift).',
+      )
       return
     }
-    if (state.phase === 'main') {
-      playSfx('surge_bolt', 0.35)
-      setHint('Begin Hunt (End Turn) to declare Attack.')
-    }
+    playSfx('surge_bolt', 0.3)
+    setState((s) => beginAttack(s, selectedBeast.uid))
+    setHint(
+      hasEnemyGuard(state, 'enemy')
+        ? 'Tap a Guardian, or cancel.'
+        : 'Tap an enemy beast — or the Binder if the board is clear.',
+    )
   }
 
   const doGuard = () => {
-    if (!selectedBeast) return
-    setHint(
-      `${cardById(selectedBeast.cardId).name} stands Guard (${selectedBeast.def} DEF).`,
-    )
+    if (!selectedBeast || selectedBeast.side !== 'player') return
+    setState((s) => toggleGuard(s, selectedBeast.slot))
     playSfx('iron_clink', 0.35)
   }
 
   const doApex = () => {
-    if (selectedBeast && selectedBeast.side === 'player') {
-      const c = cardById(selectedBeast.cardId)
-      if (c.keywords.includes('apex')) {
-        if (selectedBeast.apexUsed) {
-          setHint(`${c.name}'s Apex already unleashed.`)
-        } else {
-          setHint(`${c.name} Apex triggers on summon — already resolved or pending.`)
-        }
-      }
-    }
-    // Bank storm charge as Apex power sink
-    if (state.player.storm >= 3) {
-      setState((s) => bankStormCharge(s))
-      playSfx('apex_kill', 0.45)
-      setHint('Apex power banked!')
-    } else {
-      setHint('Need 3 Storm to bank Apex power.')
-    }
+    if (!selectedBeast || selectedBeast.side !== 'player') return
+    setState((s) => triggerApexOrBank(s, selectedBeast.slot))
+    playSfx('apex_kill', 0.4)
   }
 
   const doBless = () => {
@@ -247,16 +315,58 @@ export function BattleScreen({ faction, onQuit }: Props) {
     setState((s) => useBinderAbility(s, selectedBeast.slot))
   }
 
-  const enemyName = shortName(cardById(state.enemy.binderId).name)
-  const playerName = shortName(cardById(state.player.binderId).name)
+  const enemyName = cardById(state.enemy.binderId).name
+  const playerName = cardById(state.player.binderId).name
   const handCount = state.player.hand.length
+  const phaseLabel = PHASE_LABEL[state.phase] ?? state.phase.toUpperCase()
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-[#0a0a0c] text-white relative overflow-hidden">
-      {/* ambient */}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_0%,rgba(124,58,237,0.12),transparent_45%),radial-gradient(ellipse_at_50%_100%,rgba(251,146,60,0.1),transparent_40%)]" />
 
-      {/* Enemy header */}
+      {/* Phase banner */}
+      <div className="absolute top-12 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
+        <div
+          className={[
+            'px-4 py-1 rounded-full text-[0.65rem] font-black tracking-[0.2em]',
+            'border backdrop-blur-sm',
+            state.phase === 'hunt'
+              ? 'bg-rose-900/70 border-rose-400/50 text-rose-200'
+              : state.phase === 'dawn'
+                ? 'bg-sky-900/70 border-sky-400/50 text-sky-200'
+                : state.phase === 'dusk'
+                  ? 'bg-violet-900/70 border-violet-400/50 text-violet-200'
+                  : 'bg-black/60 border-white/20 text-white/80',
+          ].join(' ')}
+        >
+          {phaseLabel}
+          {state.active !== 'player' && state.phase !== 'gameover'
+            ? ' · ENEMY'
+            : ''}
+        </div>
+      </div>
+
+      {/* Combat toast */}
+      {toast && (
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-40 pointer-events-none animate-slide-up">
+          <div
+            className={[
+              'px-4 py-2 rounded-2xl font-bold text-sm shadow-xl border max-w-[90vw] text-center',
+              toast.kind === 'damage' || toast.kind === 'kill'
+                ? 'bg-rose-950/90 border-rose-400/60 text-rose-100'
+                : toast.kind === 'enter'
+                  ? 'bg-amber-950/90 border-amber-400/50 text-amber-100'
+                  : toast.kind === 'phase'
+                    ? 'bg-sky-950/90 border-sky-400/50 text-sky-100 tracking-widest'
+                    : 'bg-stone-900/90 border-white/20 text-white',
+            ].join(' ')}
+          >
+            {toast.text}
+          </div>
+        </div>
+      )}
+
+      {/* Enemy header — tapable face when attacking */}
       <header className="relative z-10 px-3 pt-2 pb-1 shrink-0">
         <div className="flex items-start gap-2">
           <button
@@ -267,14 +377,37 @@ export function BattleScreen({ faction, onQuit }: Props) {
           >
             ✕
           </button>
-          <div className="flex-1 min-w-0">
+          <button
+            type="button"
+            onClick={onFaceEnemy}
+            className={[
+              'flex-1 min-w-0 text-left rounded-xl p-1 -m-1 transition',
+              faceLegal
+                ? 'ring-2 ring-rose-400 bg-rose-500/15 animate-pulse'
+                : '',
+            ].join(' ')}
+          >
             <div className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-900 border-2 border-violet-300/40 flex items-center justify-center text-lg shadow-lg shrink-0">
-                💀
+              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-900 border-2 border-violet-300/40 flex items-center justify-center text-lg shadow-lg shrink-0 overflow-hidden">
+                {cardById(state.enemy.binderId).art ? (
+                  <img
+                    src={
+                      cardById(state.enemy.binderId).art!.startsWith('/')
+                        ? `${import.meta.env.BASE_URL}${cardById(state.enemy.binderId).art!.slice(1)}`
+                        : cardById(state.enemy.binderId).art!
+                    }
+                    alt=""
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  '💀'
+                )}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline justify-between gap-2">
-                  <div className="font-bold text-[0.8rem] leading-tight">{enemyName}</div>
+                  <div className="font-bold text-[0.8rem] leading-tight">
+                    {enemyName}
+                  </div>
                   <div className="text-sm font-black text-fuchsia-300 shrink-0">
                     {state.enemy.binderHp} HP
                   </div>
@@ -284,9 +417,14 @@ export function BattleScreen({ faction, onQuit }: Props) {
                   max={BINDER_MAX_HP}
                   gradient="bg-gradient-to-r from-violet-600 via-fuchsia-500 to-pink-400"
                 />
+                {faceLegal && (
+                  <div className="text-[0.55rem] text-rose-300 font-bold mt-0.5">
+                    TAP TO STRIKE BINDER
+                  </div>
+                )}
               </div>
             </div>
-          </div>
+          </button>
           <button
             type="button"
             className="mt-0.5 w-8 h-8 rounded-full bg-white/10 border border-white/15 flex items-center justify-center text-sm"
@@ -299,7 +437,6 @@ export function BattleScreen({ faction, onQuit }: Props) {
 
       {/* Battlefield */}
       <div className="relative z-10 flex-1 min-h-0 flex flex-col px-2 gap-1.5 justify-center">
-        {/* Enemy row */}
         <div className="flex gap-2 items-stretch pr-10">
           {state.enemy.beasts.map((b, i) => (
             <BoardSlot
@@ -307,55 +444,84 @@ export function BattleScreen({ faction, onQuit }: Props) {
               beast={b}
               side="enemy"
               selected={!!b && b.uid === state.selectedBeastUid}
+              targetable={
+                !!(
+                  attacking &&
+                  b &&
+                  isValidAttackTarget(state, state.attackSourceUid!, {
+                    kind: 'beast',
+                    uid: b.uid,
+                  })
+                )
+              }
+              damageFlash={b ? dmgFlash[b.uid] : null}
               onTap={() => onSlotEnemy(i)}
             />
           ))}
         </div>
 
-        {/* Hint + End Turn */}
         <div className="relative flex items-center justify-center min-h-[2.2rem] px-10">
           <p className="text-[0.7rem] text-white/50 text-center leading-snug line-clamp-2">
             {state.phase === 'gameover'
               ? state.winReason
-              : state.active !== 'player'
-                ? 'Enemy is hunting…'
-                : hint}
+              : attacking
+                ? hasEnemyGuard(state, 'enemy')
+                  ? 'Strike a Guardian first.'
+                  : 'Tap an enemy beast or their Binder.'
+                : state.active !== 'player'
+                  ? busy
+                    ? 'Enemy is hunting…'
+                    : 'Enemy turn…'
+                  : hint}
           </p>
           {state.phase !== 'gameover' && state.active === 'player' && (
             <button
               type="button"
               onClick={() => {
+                if (attacking) {
+                  setState((s) => cancelAttack(s))
+                  return
+                }
                 if (state.phase === 'main') playSfx('dawn_horn', 0.25)
                 else playSfx('surge_bolt', 0.35)
                 setState((s) => endTurn(s))
               }}
               className="absolute right-0 top-1/2 -translate-y-1/2 end-turn-btn"
             >
-              <span className="end-turn-label">End Turn</span>
+              <span className="end-turn-label">
+                {attacking ? 'Cancel' : 'End Turn'}
+              </span>
             </button>
           )}
         </div>
 
-        {/* Player row */}
         <div className="flex gap-2 items-stretch pr-10">
           {state.player.beasts.map((b, i) => (
             <BoardSlot
               key={`p${i}`}
               beast={b}
               side="player"
-              droppable={!!(waitingPlay && !b)}
-              selected={!!b && b.uid === state.selectedBeastUid}
+              droppable={!!(waitingPlay && !b && state.selectedHand !== null && canPlayToSlot(state, state.selectedHand, i))}
+              selected={
+                !!b &&
+                (b.uid === state.selectedBeastUid ||
+                  b.uid === state.attackSourceUid)
+              }
+              damageFlash={b ? dmgFlash[b.uid] : null}
               onTap={() => onSlotPlayer(i)}
             />
           ))}
         </div>
       </div>
 
-      {/* Selected action row */}
-      {(selectedBeast ||
-        (selectedCard && selectedCard.type !== 'beast' && state.phase === 'main')) &&
+      {/* Action row */}
+      {(selectedBeast?.side === 'player' ||
+        (selectedCard &&
+          selectedCard.type !== 'beast' &&
+          state.phase === 'main')) &&
         state.phase !== 'gameover' &&
-        state.active === 'player' && (
+        state.active === 'player' &&
+        !attacking && (
           <div className="relative z-20 mx-3 mb-1 flex justify-center">
             <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-2xl bg-[#2a1f14]/95 border-2 border-orange-500/70 shadow-[0_0_20px_rgba(251,146,60,0.35)]">
               {selectedBeast ? (
@@ -364,11 +530,13 @@ export function BattleScreen({ faction, onQuit }: Props) {
                     type="button"
                     onClick={doAttack}
                     className="action-chip"
+                    disabled={!canBeastAttack(state, selectedBeast)}
                   >
                     <span>⚔️</span> Attack
                   </button>
                   <button type="button" onClick={doGuard} className="action-chip">
-                    <span>🛡️</span> Guard
+                    <span>🛡️</span>{' '}
+                    {selectedBeast.guarding ? 'Unguard' : 'Guard'}
                   </button>
                   <button
                     type="button"
@@ -378,7 +546,6 @@ export function BattleScreen({ faction, onQuit }: Props) {
                     <span>🔥</span> Apex
                   </button>
                   {state.player.binderId === 1 &&
-                    selectedBeast.side === 'player' &&
                     !state.player.binderAbilityUsed && (
                       <button
                         type="button"
@@ -405,6 +572,8 @@ export function BattleScreen({ faction, onQuit }: Props) {
                     ...s,
                     selectedBeastUid: null,
                     selectedHand: null,
+                    uiMode: 'idle',
+                    attackSourceUid: null,
                   }))
                 }
                 className="w-7 h-7 rounded-full bg-black/40 border border-white/20 text-xs"
@@ -443,8 +612,14 @@ export function BattleScreen({ faction, onQuit }: Props) {
                   card={card}
                   size="hand"
                   selected={state.selectedHand === i}
-                  dimmed={!affordable && state.phase === 'main'}
+                  dimmed={
+                    (!affordable && state.phase === 'main') || attacking
+                  }
                   onClick={() => {
+                    if (attacking) {
+                      setState((s) => cancelAttack(s))
+                      return
+                    }
                     if (state.phase === 'gameover') {
                       openInspect(card, setInspect)
                       return
@@ -471,12 +646,26 @@ export function BattleScreen({ faction, onQuit }: Props) {
       <div className="relative z-10 shrink-0 px-3 pb-1 pt-1">
         <div className="flex items-end gap-2">
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-500 to-amber-700 border-2 border-orange-300/50 flex items-center justify-center text-lg shadow-lg shrink-0">
-              🛡️
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-500 to-amber-700 border-2 border-orange-300/50 flex items-center justify-center text-lg shadow-lg shrink-0 overflow-hidden">
+              {cardById(state.player.binderId).art ? (
+                <img
+                  src={
+                    cardById(state.player.binderId).art!.startsWith('/')
+                      ? `${import.meta.env.BASE_URL}${cardById(state.player.binderId).art!.slice(1)}`
+                      : cardById(state.player.binderId).art!
+                  }
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                '🛡️'
+              )}
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline justify-between gap-2">
-                <div className="font-bold text-[0.8rem] leading-tight line-clamp-1">{playerName}</div>
+                <div className="font-bold text-[0.8rem] leading-tight line-clamp-1">
+                  {playerName}
+                </div>
                 <div className="text-sm font-black text-orange-300 shrink-0">
                   {state.player.binderHp} HP
                 </div>
@@ -520,7 +709,6 @@ export function BattleScreen({ faction, onQuit }: Props) {
         )}
       </div>
 
-      {/* Game over overlay */}
       {state.phase === 'gameover' && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-6">
           <div className="w-full max-w-sm rounded-3xl border border-orange-400/40 bg-[#1a1410] p-6 text-center space-y-3 shadow-[0_0_40px_rgba(251,146,60,0.3)]">

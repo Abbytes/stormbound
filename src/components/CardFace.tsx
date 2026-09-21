@@ -9,6 +9,7 @@ interface Props {
   atk?: number
   def?: number
   hp?: number
+  targetable?: boolean
   onClick?: () => void
   className?: string
 }
@@ -75,6 +76,7 @@ export function CardFace({
   atk,
   def,
   hp,
+  targetable,
   onClick,
   className = '',
 }: Props) {
@@ -83,6 +85,11 @@ export function CardFace({
   const d = def ?? card.def ?? 0
   const h = hp ?? card.hp ?? 0
   const tiny = size === 'board' || compact
+  const artSrc = card.art
+    ? card.art.startsWith('http') || card.art.startsWith('/')
+      ? card.art
+      : `${import.meta.env.BASE_URL}${card.art.replace(/^\//, '')}`
+    : null
 
   return (
     <button
@@ -94,14 +101,15 @@ export function CardFace({
         SIZE[size],
         borderClass(card.rarity),
         selected ? 'scale-105 -translate-y-3 z-20 ring-2 ring-orange-400' : '',
+        targetable
+          ? 'ring-2 ring-rose-400 scale-[1.03] shadow-[0_0_18px_rgba(244,63,94,0.55)]'
+          : '',
         dimmed ? 'opacity-45 grayscale-[30%]' : '',
         className,
       ].join(' ')}
     >
-      {/* metallic inner rim */}
       <div className="pointer-events-none absolute inset-[2px] rounded-[10px] border border-white/10" />
 
-      {/* header */}
       <div className="relative z-10 flex items-start justify-between gap-1 px-1.5 pt-1.5 pb-0.5">
         <div
           className={[
@@ -125,30 +133,40 @@ export function CardFace({
         )}
       </div>
 
-      {/* art window */}
       <div
         className={[
           'relative mx-1.5 rounded-md overflow-hidden border border-black/50',
           tiny ? 'flex-[1.15] min-h-0' : 'flex-[1.4] min-h-[38%]',
-          artBg(card),
+          artSrc ? 'bg-black' : artBg(card),
         ].join(' ')}
       >
-        <div className="absolute inset-0 opacity-40 bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2240%22 height=%2240%22><path d=%22M0 20 Q10 0 20 20 T40 20%22 stroke=%22%23fff%22 stroke-opacity=%220.08%22 fill=%22none%22/></svg>')]" />
-        <div
-          className={[
-            'absolute inset-0 flex items-center justify-center',
-            tiny ? 'text-2xl' : size === 'inspect' ? 'text-6xl' : 'text-3xl',
-            'drop-shadow-[0_0_12px_rgba(255,255,255,0.25)]',
-          ].join(' ')}
-        >
-          {artGlyph(card)}
-        </div>
+        {artSrc ? (
+          <img
+            src={artSrc}
+            alt=""
+            className="absolute inset-0 w-full h-full object-cover object-top"
+            draggable={false}
+          />
+        ) : (
+          <>
+            <div className="absolute inset-0 opacity-40 bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2240%22 height=%2240%22><path d=%22M0 20 Q10 0 20 20 T40 20%22 stroke=%22%23fff%22 stroke-opacity=%220.08%22 fill=%22none%22/></svg>')]" />
+            <div
+              className={[
+                'absolute inset-0 flex items-center justify-center',
+                tiny ? 'text-2xl' : size === 'inspect' ? 'text-6xl' : 'text-3xl',
+                'drop-shadow-[0_0_12px_rgba(255,255,255,0.25)]',
+              ].join(' ')}
+            >
+              {artGlyph(card)}
+            </div>
+          </>
+        )}
         {card.rarity === 'apex' && (
           <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_50%_120%,rgba(251,191,36,0.35),transparent_55%)]" />
         )}
+        <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-black/50 via-transparent to-black/10" />
       </div>
 
-      {/* ability */}
       <div
         className={[
           'mx-1.5 mt-1 mb-0.5 rounded bg-black/55 border border-white/5 px-1 py-0.5',
@@ -158,14 +176,17 @@ export function CardFace({
         <p
           className={[
             'text-white/85 leading-snug',
-            tiny ? 'text-[0.42rem] line-clamp-3' : size === 'inspect' ? 'text-[0.7rem] line-clamp-4' : 'text-[0.5rem] line-clamp-3',
+            tiny
+              ? 'text-[0.42rem] line-clamp-3'
+              : size === 'inspect'
+                ? 'text-[0.7rem] line-clamp-4'
+                : 'text-[0.5rem] line-clamp-3',
           ].join(' ')}
         >
           {card.ability}
         </p>
       </div>
 
-      {/* footer stats */}
       <div
         className={[
           'relative z-10 mt-auto flex items-center justify-between gap-0.5 px-1 pb-1 pt-0.5',
@@ -176,13 +197,23 @@ export function CardFace({
           <>
             <div className="flex items-center gap-0.5 min-w-0">
               <span className={tiny ? 'text-[0.55rem]' : 'text-[0.7rem]'}>⚔️</span>
-              <span className={['font-black text-rose-300', tiny ? 'text-[0.55rem]' : 'text-[0.7rem]'].join(' ')}>
+              <span
+                className={[
+                  'font-black text-rose-300',
+                  tiny ? 'text-[0.55rem]' : 'text-[0.7rem]',
+                ].join(' ')}
+              >
                 {a}
               </span>
             </div>
             <div className="flex items-center gap-0.5 min-w-0">
               <span className={tiny ? 'text-[0.55rem]' : 'text-[0.7rem]'}>🛡️</span>
-              <span className={['font-black text-sky-300', tiny ? 'text-[0.55rem]' : 'text-[0.7rem]'].join(' ')}>
+              <span
+                className={[
+                  'font-black text-sky-300',
+                  tiny ? 'text-[0.55rem]' : 'text-[0.7rem]',
+                ].join(' ')}
+              >
                 {d}
               </span>
             </div>
@@ -203,7 +234,12 @@ export function CardFace({
             </div>
             <div className="flex items-center gap-0.5 min-w-0">
               <span className={tiny ? 'text-[0.55rem]' : 'text-[0.7rem]'}>❤️</span>
-              <span className={['font-black text-emerald-300', tiny ? 'text-[0.55rem]' : 'text-[0.7rem]'].join(' ')}>
+              <span
+                className={[
+                  'font-black text-emerald-300',
+                  tiny ? 'text-[0.55rem]' : 'text-[0.7rem]',
+                ].join(' ')}
+              >
                 {h}
               </span>
             </div>
