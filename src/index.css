@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  background: #0a0e1a;
+  color: #fff;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+.bg-storm-home {
+  background:
+    radial-gradient(ellipse at 20% 0%, rgba(34, 211, 238, 0.18), transparent 50%),
+    radial-gradient(ellipse at 80% 10%, rgba(168, 85, 247, 0.2), transparent 45%),
+    radial-gradient(ellipse at 50% 100%, rgba(251, 146, 60, 0.08), transparent 40%),
+    #070b14;
+}
+
+.ashfall-floor {
+  background:
+    linear-gradient(180deg, rgba(28, 25, 23, 0.9), rgba(12, 10, 9, 0.95)),
+    repeating-linear-gradient(
+      90deg,
+      rgba(68, 64, 60, 0.15) 0px,
+      rgba(68, 64, 60, 0.15) 1px,
+      transparent 1px,
+      transparent 20%
+    );
+  border: 1px solid rgba(168, 162, 158, 0.2);
+  box-shadow:
+    inset 0 0 30px rgba(0, 0, 0, 0.5),
+    0 0 20px rgba(34, 211, 238, 0.08),
+    0 0 20px rgba(168, 85, 247, 0.08);
+}
+
+@keyframes slide-up {
+  from { transform: translateY(24px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.animate-slide-up {
+  animation: slide-up 0.22s ease-out;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
