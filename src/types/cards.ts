@@ -1,48 +1,50 @@
-export type Faction = 'dawn' | 'pack' | 'neutral'
-export type CardType = 'beast' | 'relic' | 'storm' | 'binder'
+export type Faction = 'dawn' | 'pack'
+export type Stage = 'basic' | 'stage1' | 'apex'
 export type Rarity = 'common' | 'rare' | 'epic' | 'apex'
-export type Keyword =
-  | 'surge'
-  | 'ward'
-  | 'hunt'
-  | 'bond'
-  | 'apex'
-  | 'swift'
-  | 'flight'
-  | 'guard'
+
+export interface AttackDef {
+  name: string
+  energyCost: number
+  damage: number
+  /** Extra damage if attached energy >= 2 (Thunder Fox Surge) */
+  surgeBonus?: number
+  note?: string
+}
+
+export interface AbilityDef {
+  name: string
+  description: string
+  /** onEvolve: fire when this card evolves onto a lower stage */
+  trigger: 'onEvolve' | 'passive' | 'ward'
+}
 
 export interface CardDef {
-  id: number
+  id: string
   name: string
   faction: Faction
-  type: CardType
+  stage: Stage
+  evoFrom?: string
+  hp: number
+  attacks: AttackDef[]
+  ability?: AbilityDef
   rarity: Rarity
-  cost: number
-  atk?: number
-  def?: number
-  hp?: number
-  keywords: Keyword[]
-  ability: string
-  tags: string[]
-  tutorial?: boolean
-  art?: string
-  constructed?: boolean
+  art: string
+  /** Points awarded when this Pokémon is KO'd */
+  koPoints: 1 | 2
+  /** Can attack the turn it is played */
+  swift?: boolean
+  weaknessFaction: Faction
 }
 
-export const RARITY_COPIES: Record<Rarity, number> = {
-  common: 2,
+export const RARITY_GEMS: Record<Rarity, number> = {
+  common: 1,
   rare: 2,
-  epic: 2,
-  apex: 1,
+  epic: 3,
+  apex: 4,
 }
 
-export const KEYWORD_HELP: Record<Keyword, string> = {
-  surge: 'Deals +1 damage on the first hit each Hunt.',
-  ward: 'Negates the next damage instance taken.',
-  hunt: 'Can mark a target; Hunt-marked beasts take Surge damage first.',
-  bond: 'Triggers when played next to a friendly beast.',
-  apex: 'Powerful once-per-battle effect when this beast enters play.',
-  swift: 'May attack the turn it is played.',
-  flight: 'Can only be blocked by Flight or Hunt beasts.',
-  guard: 'Must be blocked before other friendly beasts.',
+export const STAGE_LABEL: Record<Stage, string> = {
+  basic: 'Basic',
+  stage1: 'Stage 1',
+  apex: 'Apex',
 }

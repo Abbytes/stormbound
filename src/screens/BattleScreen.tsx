@@ -1,840 +1,557 @@
-import { useEffect, useRef, useState } from 'react'
-import {
-  createTutorialGame,
-  playCard,
-  selectHand,
-  selectBeast,
-  endTurn,
-  runEnemyTurn,
-  useBinderAbility,
-  useStormCrown,
-  useKeepHorn,
-  canPlayToSlot,
-  canBeastAttack,
-  beginAttack,
-  cancelAttack,
-  resolveAttack,
-  toggleGuard,
-  triggerApexOrBank,
-  isValidAttackTarget,
-  hasEnemyGuard,
-  clearFx,
-  BINDER_MAX_HP,
-  type GameState,
-  type CombatFx,
-} from '../game/engine'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { cardById } from '../data/cards'
-import { BoardSlot } from '../components/BoardSlot'
-import { CardFace } from '../components/CardFace'
-import { InspectOverlay, openInspect } from '../components/InspectOverlay'
-import type { CardDef } from '../types/cards'
 import { playSfx } from '../game/audio'
+import {
+  advanceTutorial,
+  attachEnergy,
+  attackWith,
+  beginAttachMode,
+  beginRetreatMode,
+  canEvolveOnto,
+  canPlayBasicTo,
+  createGame,
+  endTurn,
+  evolveOnto,
+  playBasicTo,
+  playerPromote,
+  retreatToBench,
+  selectHand,
+  startBattle,
+  usableAttacks,
+  consumeSfx,
+  type GameState,
+} from '../game/engine'
+import { BoardMonCard, InspectCard, MiniCard } from '../components/CardFace'
+import { EnergyCostIcons } from '../components/EnergyPips'
+import type { SfxName } from '../game/audio'
 
-interface Props {
-  faction: 'dawn' | 'pack'
-  onQuit: () => void
-}
+const TUTORIAL: string[] = [
+  'Put a Basic Pokémon from your hand into the Active Spot!',
+  'You can also Bench Basics (optional), then tap Start Battle.',
+  'Tap the ⚡ button, then your Active (or Bench) to attach Energy.',
+  'Tap Attack when your Active has enough ⚡, then End Turn.',
+  'First to 3 points wins. Apex KO = 2 pts. Good luck!',
+]
 
-function HpBar({
-  hp,
-  max,
-  gradient,
-}: {
-  hp: number
-  max: number
-  gradient: string
-}) {
-  const pct = Math.max(0, Math.min(100, (hp / max) * 100))
+function PointTrack({ points, label }: { points: number; label: string }) {
   return (
-    <div className="h-2.5 w-full rounded-full bg-black/60 border border-white/10 overflow-hidden">
-      <div
-        className={`h-full rounded-full transition-all duration-300 ${gradient}`}
-        style={{ width: `${pct}%` }}
-      />
+    <div className="flex flex-col items-center gap-1">
+      <span className="text-[9px] uppercase tracking-wider text-white/50">{label}</span>
+      <div className="flex gap-1.5">
+        {[0, 1, 2].map((i) => (
+          <div
+            key={i}
+            className={`w-5 h-5 rounded-full border-2 flex items-center justify-center text-[9px] font-black ${
+              i < points
+                ? 'bg-amber-400 border-amber-200 text-amber-950 shadow-[0_0_10px_rgba(251,191,36,0.6)]'
+                : 'bg-black/30 border-white/25 text-white/30'
+            }`}
+          >
+            {i < points ? '●' : i + 1}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
 
-const PHASE_LABEL: Record<string, string> = {
-  dawn: 'DAWN',
-  main: 'MAIN',
-  hunt: 'HUNT',
-  dusk: 'DUSK',
-  gameover: 'END',
+function EmptySlot({
+  glow,
+  label,
+  onClick,
+  size = 'md',
+}: {
+  glow?: boolean
+  label: string
+  onClick?: () => void
+  size?: 'sm' | 'md'
+}) {
+  const dim = size === 'sm' ? 'w-[3.6rem] h-[5rem]' : 'w-[5.5rem] h-[7.6rem]'
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`${dim} rounded-2xl border-2 border-dashed flex items-center justify-center text-[10px] font-bold text-center px-1 ${
+        glow
+          ? 'border-cyan-300 bg-cyan-400/15 text-cyan-100 shadow-[0_0_20px_rgba(34,211,238,0.5)] animate-pulse'
+          : 'border-white/20 bg-black/20 text-white/35'
+      }`}
+    >
+      {label}
+    </button>
+  )
 }
 
-export function BattleScreen({ faction, onQuit }: Props) {
-  const [state, setState] = useState<GameState>(() => createTutorialGame(faction))
-  const [inspect, setInspect] = useState<CardDef | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [hint, setHint] = useState('The gates open. Summon a beast from your hand.')
-  const [toast, setToast] = useState<CombatFx | null>(null)
-  const [dmgFlash, setDmgFlash] = useState<Record<string, number>>({})
-  const prevLogLen = useRef(0)
-  const seenFx = useRef(new Set<number>())
+function SpeechBubble({ text, onDismiss }: { text: string; onDismiss: () => void }) {
+  return (
+    <div className="absolute z-30 left-3 right-3 top-14 mx-auto max-w-sm pointer-events-auto">
+      <div className="relative bg-white text-slate-900 rounded-2xl px-4 py-3 text-sm font-semibold leading-snug shadow-xl text-left">
+        {text}
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="mt-2 text-[11px] font-bold text-sky-700 underline"
+        >
+          Got it
+        </button>
+        <div className="absolute -bottom-2 left-8 w-4 h-4 bg-white rotate-45" />
+      </div>
+    </div>
+  )
+}
 
-  // Preview / QA hook — read/write battle state from Playwright
+export function BattleScreen({ onQuit }: { onQuit: () => void }) {
+  const [game, setGame] = useState<GameState>(() => createGame())
+  const [inspectId, setInspectId] = useState<string | null>(null)
+
+  const flushSfx = (sfx: string[]) => {
+    for (const name of sfx) {
+      playSfx(name as SfxName, name.startsWith('ko') || name === 'win_sting' ? 0.7 : 0.55)
+    }
+  }
+
+  const apply = useCallback((fn: (g: GameState) => GameState, sfx?: SfxName) => {
+    setGame((g) => {
+      const next = fn(g)
+      if (next === g) return g
+      const { state, sfx: queued } = consumeSfx(next)
+      const all = sfx ? [sfx, ...queued] : queued
+      // defer audio outside reducer
+      queueMicrotask(() => flushSfx(all))
+      return state
+    })
+  }, [])
+
+  // Auto-clear toasts
   useEffect(() => {
-    const w = window as unknown as {
-      __sbGet?: () => GameState
-      __sbSet?: (s: GameState) => void
+    if (game.toasts.length === 0) return
+    const t = setTimeout(() => {
+      setGame((g) => ({ ...g, toasts: g.toasts.slice(1) }))
+    }, 1800)
+    return () => clearTimeout(t)
+  }, [game.toasts])
+
+  const selectedCardId =
+    game.selectedHand !== null ? game.player.hand[game.selectedHand] : null
+  const selectedDef = selectedCardId ? cardById(selectedCardId) : null
+
+  const glowingActive =
+    game.uiMode === 'placeBasic' &&
+    selectedDef?.stage === 'basic' &&
+    !game.player.active
+
+  const glowingBench = (i: number) => {
+    if (game.uiMode === 'retreat') return !!game.player.bench[i]
+    if (game.uiMode === 'attachEnergy') return !!game.player.bench[i]
+    if (game.uiMode === 'promotePick') return !!game.player.bench[i]
+    if (game.selectedHand === null) return false
+    if (selectedDef?.stage === 'basic') {
+      return canPlayBasicTo(game, game.selectedHand, i) && !!game.player.active
     }
-    w.__sbGet = () => state
-    w.__sbSet = (s: GameState) => setState(s)
-    return () => {
-      delete w.__sbGet
-      delete w.__sbSet
+    if (selectedDef?.evoFrom) {
+      return canEvolveOnto(game, game.selectedHand, i)
     }
-  }, [state])
-
-  // FX → toast + damage numbers
-  useEffect(() => {
-    const timers: number[] = []
-    for (const fx of state.fx) {
-      if (seenFx.current.has(fx.id)) continue
-      seenFx.current.add(fx.id)
-      // Prefer non-phase toasts over phase banners when both fire
-      setToast((cur) => (fx.kind === 'phase' && cur && cur.kind !== 'phase' ? cur : fx))
-      if (fx.kind === 'enter') playSfx('iron_clink', 0.45)
-      if (fx.kind === 'damage') playSfx('surge_bolt', 0.5)
-      if (fx.kind === 'kill') playSfx('apex_kill', 0.55)
-      if (fx.kind === 'phase' && state.active === 'player') playSfx('dawn_horn', 0.2)
-      if (fx.amount && fx.targetUid) {
-        const uid = fx.targetUid
-        const amt = fx.amount
-        setDmgFlash((d) => ({ ...d, [uid]: amt }))
-        timers.push(
-          window.setTimeout(() => {
-            setDmgFlash((d) => {
-              const n = { ...d }
-              delete n[uid]
-              return n
-            })
-          }, 900),
-        )
-      }
-      const id = fx.id
-      const delay = fx.kind === 'phase' ? 900 : 1600
-      timers.push(
-        window.setTimeout(() => {
-          setToast((cur) => (cur?.id === id ? null : cur))
-          setState((s) => clearFx(s, id))
-        }, delay),
-      )
-    }
-    return () => timers.forEach((t) => clearTimeout(t))
-  }, [state.fx, state.active])
-
-  useEffect(() => {
-    const msgs = state.log.slice(prevLogLen.current)
-    prevLogLen.current = state.log.length
-    for (const m of msgs) {
-      const lower = m.toLowerCase()
-      if (lower.includes('apex')) playSfx('apex_kill')
-      else if (
-        lower.includes('surge') ||
-        lower.includes('chain bolt') ||
-        lower.includes('lightning')
-      )
-        playSfx('surge_bolt')
-      else if (lower.includes('bond')) {
-        playSfx(
-          state.playerFaction === 'pack' || lower.includes('pack')
-            ? 'bond'
-            : 'iron_clink',
-        )
-      } else if (lower.includes('dawn —')) playSfx('dawn_horn', 0.4)
-    }
-    if (msgs.length) setHint(msgs[msgs.length - 1])
-  }, [state.log, state.playerFaction])
-
-  useEffect(() => {
-    if (state.active !== 'enemy' || state.phase === 'gameover') return
-    let cancelled = false
-    setBusy(true)
-    const t = window.setTimeout(() => {
-      if (cancelled) return
-      setState((s) => runEnemyTurn(s))
-      setBusy(false)
-    }, 600)
-    return () => {
-      cancelled = true
-      window.clearTimeout(t)
-    }
-  }, [state.active, state.phase, state.turn])
-
-  const selectedCard =
-    state.selectedHand !== null
-      ? cardById(state.player.hand[state.selectedHand])
-      : null
-  const selectedBeast = state.selectedBeastUid
-    ? state.player.beasts.find((b) => b?.uid === state.selectedBeastUid) ??
-      state.enemy.beasts.find((b) => b?.uid === state.selectedBeastUid) ??
-      null
-    : null
-
-  const waitingPlay =
-    state.phase === 'main' &&
-    state.active === 'player' &&
-    selectedCard?.type === 'beast' &&
-    state.selectedHand !== null &&
-    state.uiMode !== 'attack'
-
-  const hasLegalSummonSlot =
-    waitingPlay &&
-    state.selectedHand !== null &&
-    state.player.beasts.some(
-      (b, i) => !b && canPlayToSlot(state, state.selectedHand!, i),
-    )
-
-  const attacking = state.uiMode === 'attack' && !!state.attackSourceUid
-  const enemyHasGuard = hasEnemyGuard(state, 'enemy')
-  const faceLegal =
-    attacking &&
-    !!state.attackSourceUid &&
-    !enemyHasGuard &&
-    isValidAttackTarget(state, state.attackSourceUid, { kind: 'face' })
-
-  const onSlotPlayer = (slot: number) => {
-    if (waitingPlay && state.selectedHand !== null) {
-      if (!canPlayToSlot(state, state.selectedHand, slot)) return
-      const before = state
-      const next = playCard(before, state.selectedHand, slot)
-      if (next !== before) {
-        const c = selectedCard!
-        if (c.keywords.includes('bond')) {
-          playSfx(c.faction === 'pack' ? 'bond' : 'iron_clink')
-        } else if (c.type === 'beast') {
-          playSfx('iron_clink', 0.4)
-        }
-        if (c.keywords.includes('apex')) playSfx('apex_kill')
-        setHint(`${c.name} enters the arena.`)
-      }
-      setState(next)
-      return
-    }
-    const beast = state.player.beasts[slot]
-    if (!beast) return
-
-    if (attacking) {
-      // Tap same attacker to cancel; otherwise switch attacker
-      if (state.attackSourceUid === beast.uid) {
-        setState((s) => cancelAttack(s))
-        setHint('Attack cancelled.')
-        return
-      }
-      if (canBeastAttack(state, beast)) {
-        playSfx('surge_bolt', 0.45)
-        setState((s) => beginAttack(s, beast.uid))
-        setHint(
-          hasEnemyGuard(state, 'enemy')
-            ? 'Tap a Guardian (Guard) beast first.'
-            : 'No Guardians — tap the glowing Binder HP to go face.',
-        )
-        return
-      }
-      setState((s) => cancelAttack(s))
-      return
-    }
-
-    if (state.active === 'player' && (state.phase === 'main' || state.phase === 'hunt')) {
-      // Hunt: one tap starts Attack targeting (HS-style). Main: select + show actions.
-      if (state.phase === 'hunt' && canBeastAttack(state, beast)) {
-        playSfx('surge_bolt', 0.45)
-        setState((s) => beginAttack(s, beast.uid))
-        setHint(
-          hasEnemyGuard(state, 'enemy')
-            ? 'Tap a Guardian (Guard) beast first.'
-            : 'No Guardians — tap the glowing Binder HP to go face.',
-        )
-        return
-      }
-      setState((s) => selectBeast(s, beast.uid))
-      setHint(
-        canBeastAttack(state, beast)
-          ? `${cardById(beast.cardId).name}: tap Attack, or Guard / Apex.`
-          : `${cardById(beast.cardId).name}: can't Attack yet.`,
-      )
-      return
-    }
-    openInspect(cardById(beast.cardId), setInspect)
+    return false
   }
 
-  const onSlotEnemy = (slot: number) => {
-    const beast = state.enemy.beasts[slot]
-
-    // Empty board / empty slot: strike Binder face when legal
-    if (attacking && !beast) {
-      onFaceEnemy()
-      return
-    }
-
-    if (attacking && beast) {
-      if (
-        isValidAttackTarget(state, state.attackSourceUid!, {
-          kind: 'beast',
-          uid: beast.uid,
-        })
-      ) {
-        playSfx('surge_bolt')
-        setState((s) =>
-          resolveAttack(s, { kind: 'beast', uid: beast.uid }),
-        )
-        return
-      }
-      setHint(
-        hasEnemyGuard(state, 'enemy')
-          ? 'A Guardian blocks the path — strike Guard first.'
-          : 'Invalid target.',
-      )
-      return
-    }
-
-    if (state.phase === 'main' && state.active === 'player') {
-      const hasCrown = state.player.relics.some(
-        (r) => r.cardId === 20 && !r.usedThisTurn,
-      )
-      const hasHorn = state.player.relics.some(
-        (r) => r.cardId === 28 && !r.usedThisTurn,
-      )
-      if (hasHorn && beast) {
-        setState((s) => useKeepHorn(s, 'enemy', slot))
-        return
-      }
-      if (hasCrown && beast?.huntMarked) {
-        setState((s) => useStormCrown(s, 'enemy', slot))
-        playSfx('surge_bolt')
-        return
-      }
-    }
-    if (beast) {
-      setState((s) => selectBeast(s, beast.uid))
-      openInspect(cardById(beast.cardId), setInspect)
-    }
-  }
-
-  const onFaceEnemy = () => {
-    if (!attacking || !faceLegal) {
-      if (attacking && hasEnemyGuard(state, 'enemy')) {
-        setHint('Guardians must be broken before the Binder.')
-      }
-      return
-    }
-    playSfx('surge_bolt')
-    setState((s) => resolveAttack(s, { kind: 'face' }))
-  }
-
-  const playNonBeast = () => {
-    if (state.selectedHand === null || !selectedCard) return
-    if (selectedCard.type === 'beast') return
-    const next = playCard(state, state.selectedHand, 0)
-    if (selectedCard.type === 'storm') playSfx('surge_bolt')
-    else playSfx('iron_clink', 0.35)
-    setState(next)
-  }
-
-  const doAttack = () => {
-    if (!selectedBeast || selectedBeast.side !== 'player') return
-    if (!canBeastAttack(state, selectedBeast)) {
-      setHint(
-        selectedBeast.attackedThisTurn
-          ? 'Already struck this turn.'
-          : 'Summoning sickness — wait until next Dawn (or need Swift).',
-      )
-      return
-    }
-    playSfx('surge_bolt', 0.5)
-    setState((s) => beginAttack(s, selectedBeast.uid))
-    setHint(
-      hasEnemyGuard(state, 'enemy')
-        ? 'Tap a Guardian (Guard) beast, or cancel.'
-        : 'Board clear — tap the glowing Binder HP to go face.',
-    )
-  }
-
-  const doGuard = () => {
-    if (!selectedBeast || selectedBeast.side !== 'player') return
-    setState((s) => toggleGuard(s, selectedBeast.slot))
-    playSfx('iron_clink', 0.35)
-  }
-
-  const doApex = () => {
-    if (!selectedBeast || selectedBeast.side !== 'player') return
-    setState((s) => triggerApexOrBank(s, selectedBeast.slot))
-    playSfx('apex_kill', 0.55)
-  }
-
-  const doBless = () => {
+  const glowingActiveForAction = useMemo(() => {
+    if (glowingActive) return true
+    if (game.uiMode === 'attachEnergy' && game.player.active) return true
     if (
-      !selectedBeast ||
-      selectedBeast.side !== 'player' ||
-      state.player.binderId !== 1
+      game.selectedHand !== null &&
+      selectedDef?.evoFrom &&
+      canEvolveOnto(game, game.selectedHand, 'active')
     )
+      return true
+    return false
+  }, [game, glowingActive, selectedDef])
+
+  const onSlot = (target: 'active' | number) => {
+    if (game.phase === 'promote' && game.uiMode === 'promotePick' && target !== 'active') {
+      apply((g) => playerPromote(g, target), 'place_card')
       return
-    setState((s) => useBinderAbility(s, selectedBeast.slot))
+    }
+    if (game.uiMode === 'attachEnergy') {
+      apply((g) => attachEnergy(g, target))
+      return
+    }
+    if (game.uiMode === 'retreat' && target !== 'active') {
+      apply((g) => retreatToBench(g, target), 'place_card')
+      return
+    }
+    if (game.selectedHand === null) {
+      // Inspect board mon
+      const mon =
+        target === 'active'
+          ? game.player.active
+          : game.player.bench[target]
+      if (mon) {
+        playSfx('inspect_chime', 0.4)
+        setInspectId(mon.cardId)
+      }
+      return
+    }
+    if (selectedDef?.stage === 'basic' && canPlayBasicTo(game, game.selectedHand, target)) {
+      apply((g) => playBasicTo(g, target))
+      return
+    }
+    if (selectedDef?.evoFrom && canEvolveOnto(game, game.selectedHand, target)) {
+      apply((g) => evolveOnto(g, target))
+      return
+    }
   }
 
-  const enemyName = cardById(state.enemy.binderId).name
-  const playerName = cardById(state.player.binderId).name
-  const handCount = state.player.hand.length
-  const phaseLabel = PHASE_LABEL[state.phase] ?? state.phase.toUpperCase()
+  const attacks = usableAttacks(game.player.active)
+  const canStart = game.phase === 'setup' && !!game.player.active
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-[#0a0a0c] text-white relative overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_0%,rgba(124,58,237,0.12),transparent_45%),radial-gradient(ellipse_at_50%_100%,rgba(251,146,60,0.1),transparent_40%)]" />
-
-      {/* Phase banner */}
-      <div className="absolute top-12 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
-        <div
-          className={[
-            'px-4 py-1 rounded-full text-[0.65rem] font-black tracking-[0.2em]',
-            'border backdrop-blur-sm',
-            state.phase === 'hunt'
-              ? 'bg-rose-900/70 border-rose-400/50 text-rose-200'
-              : state.phase === 'dawn'
-                ? 'bg-sky-900/70 border-sky-400/50 text-sky-200'
-                : state.phase === 'dusk'
-                  ? 'bg-violet-900/70 border-violet-400/50 text-violet-200'
-                  : 'bg-black/60 border-white/20 text-white/80',
-          ].join(' ')}
+    <div className="flex-1 min-h-0 flex flex-col relative overflow-hidden pocket-playmat">
+      {/* Top bar */}
+      <div className="shrink-0 flex items-center justify-between px-3 pt-2 pb-1 z-20">
+        <button
+          type="button"
+          onClick={onQuit}
+          className="text-xs font-bold px-2 py-1 rounded-lg bg-black/35 border border-white/15"
         >
-          {phaseLabel}
-          {state.active !== 'player' && state.phase !== 'gameover'
-            ? ' · ENEMY'
-            : ''}
+          ← Quit
+        </button>
+        <div className="text-[10px] font-semibold text-white/70">
+          {game.phase === 'setup'
+            ? 'Setup'
+            : game.phase === 'gameover'
+              ? 'Game Over'
+              : game.phase === 'promote'
+                ? 'Promote!'
+                : game.active === 'player'
+                  ? `Your Turn ${game.turn}`
+                  : 'Enemy Turn…'}
         </div>
+        <div className="w-12" />
       </div>
 
-      {/* Combat toast */}
-      {toast && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-40 pointer-events-none animate-slide-up">
-          <div
-            className={[
-              'px-4 py-2 rounded-2xl font-bold text-sm shadow-xl border max-w-[90vw] text-center',
-              toast.kind === 'damage' || toast.kind === 'kill'
-                ? 'bg-rose-950/90 border-rose-400/60 text-rose-100'
-                : toast.kind === 'enter'
-                  ? 'bg-amber-950/90 border-amber-400/50 text-amber-100'
-                  : toast.kind === 'phase'
-                    ? 'bg-sky-950/90 border-sky-400/50 text-sky-100 tracking-widest'
-                    : 'bg-stone-900/90 border-white/20 text-white',
-            ].join(' ')}
-          >
-            {toast.text}
-          </div>
-        </div>
+      {/* Points */}
+      <div className="shrink-0 flex justify-center gap-8 py-1 z-20">
+        <PointTrack points={game.enemy.points} label="Enemy" />
+        <PointTrack points={game.player.points} label="You" />
+      </div>
+
+      {game.tutorialStep < TUTORIAL.length && game.phase !== 'gameover' && (
+        <SpeechBubble
+          text={TUTORIAL[game.tutorialStep]}
+          onDismiss={() => apply(advanceTutorial)}
+        />
       )}
 
-      {/* Enemy header — tapable face when attacking */}
-      <header className="relative z-10 px-3 pt-2 pb-1 shrink-0">
-        <div className="flex items-start gap-2">
-          <button
-            type="button"
-            onClick={onQuit}
-            className="mt-0.5 w-8 h-8 rounded-full bg-white/10 border border-white/15 flex items-center justify-center text-sm"
-            aria-label="Close"
-          >
-            ✕
-          </button>
-          <button
-            type="button"
-            onClick={onFaceEnemy}
-            className={[
-              'flex-1 min-w-0 text-left rounded-xl p-1 -m-1 transition',
-              faceLegal
-                ? 'ring-4 ring-rose-400 bg-rose-500/25 shadow-[0_0_24px_rgba(251,113,133,0.55)] animate-pulse scale-[1.02]'
-                : '',
-            ].join(' ')}
-          >
-            <div className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-900 border-2 border-violet-300/40 flex items-center justify-center text-lg shadow-lg shrink-0 overflow-hidden">
-                {cardById(state.enemy.binderId).art ? (
-                  <img
-                    src={
-                      cardById(state.enemy.binderId).art!.startsWith('/')
-                        ? `${import.meta.env.BASE_URL}${cardById(state.enemy.binderId).art!.slice(1)}`
-                        : cardById(state.enemy.binderId).art!
-                    }
-                    alt=""
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  '💀'
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline justify-between gap-2">
-                  <div className="font-bold text-[0.8rem] leading-tight">
-                    {enemyName}
-                  </div>
-                  <div className="text-sm font-black text-fuchsia-300 shrink-0">
-                    {state.enemy.binderHp} HP
-                  </div>
-                </div>
-                <HpBar
-                  hp={state.enemy.binderHp}
-                  max={BINDER_MAX_HP}
-                  gradient="bg-gradient-to-r from-violet-600 via-fuchsia-500 to-pink-400"
+      {/* Board */}
+      <div className="flex-1 min-h-0 relative flex flex-col px-2">
+        {/* Enemy half */}
+        <div className="flex-1 flex flex-col items-center justify-end pb-1 gap-2 min-h-0">
+          {/* Enemy bench (above active) */}
+          <div className="flex gap-2 items-end">
+            {game.enemy.bench.map((m, i) =>
+              m ? (
+                <BoardMonCard
+                  key={m.uid}
+                  cardId={m.cardId}
+                  hp={m.hp}
+                  maxHp={m.maxHp}
+                  energy={m.energy}
+                  small
+                  onClick={() => {
+                    playSfx('inspect_chime', 0.35)
+                    setInspectId(m.cardId)
+                  }}
                 />
-                {faceLegal && (
-                  <div className="text-[0.7rem] text-rose-200 font-black mt-1 tracking-wide">
-                    ⚡ TAP HERE — STRIKE BINDER
-                  </div>
-                )}
-              </div>
+              ) : (
+                <EmptySlot key={i} label="Bench" size="sm" />
+              ),
+            )}
+          </div>
+          {/* Enemy active + decks */}
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-14 rounded-lg bg-violet-950/80 border border-violet-400/30 flex items-center justify-center text-[9px] text-violet-200/70 font-bold">
+              Deck
+              <br />
+              {game.enemy.deck.length}
             </div>
-          </button>
-          <button
-            type="button"
-            className="mt-0.5 w-8 h-8 rounded-full bg-white/10 border border-white/15 flex items-center justify-center text-sm"
-            aria-label="Menu"
-          >
-            ⋮
-          </button>
-        </div>
-      </header>
-
-      {/* Battlefield */}
-      <div className="relative z-10 flex-1 min-h-0 flex flex-col px-2 gap-1.5 justify-center">
-        <div className="flex gap-2 items-stretch pr-10">
-          {state.enemy.beasts.map((b, i) => (
-            <BoardSlot
-              key={`e${i}`}
-              beast={b}
-              side="enemy"
-              selected={!!b && b.uid === state.selectedBeastUid}
-              targetable={
-                !!(
-                  attacking &&
-                  b &&
-                  isValidAttackTarget(state, state.attackSourceUid!, {
-                    kind: 'beast',
-                    uid: b.uid,
-                  })
-                )
-              }
-              damageFlash={b ? dmgFlash[b.uid] : null}
-              onTap={() => onSlotEnemy(i)}
-            />
-          ))}
+            {game.enemy.active ? (
+              <BoardMonCard
+                cardId={game.enemy.active.cardId}
+                hp={game.enemy.active.hp}
+                maxHp={game.enemy.active.maxHp}
+                energy={game.enemy.active.energy}
+                onClick={() => {
+                  playSfx('inspect_chime', 0.35)
+                  setInspectId(game.enemy.active!.cardId)
+                }}
+              />
+            ) : (
+              <EmptySlot label="Active" />
+            )}
+            <div className="w-10 h-14 rounded-lg bg-black/40 border border-white/15 flex items-center justify-center text-[9px] text-white/40 font-bold">
+              Disc
+              <br />
+              {game.enemy.discard.length}
+            </div>
+          </div>
         </div>
 
-        <div className="relative flex items-center justify-center min-h-[2.2rem] px-10">
-          <p className="text-[0.7rem] text-white/50 text-center leading-snug line-clamp-2">
-            {state.phase === 'gameover'
-              ? state.winReason
-              : attacking
-                ? hasEnemyGuard(state, 'enemy')
-                  ? 'Strike a Guard beast first.'
-                  : state.enemy.beasts.every((b) => !b)
-                    ? 'Board clear — TAP ENEMY HP / BINDER'
-                    : 'Tap an enemy beast or their Binder HP.'
-                : waitingPlay && selectedCard
-                  ? hasLegalSummonSlot
-                    ? `Tap an Open Slot to play ${selectedCard.name} (${selectedCard.cost}⚡)`
-                    : `Need more ⚡ (or a free slot) for ${selectedCard.name}`
-                  : state.active !== 'player'
-                    ? busy
-                      ? 'Enemy is hunting…'
-                      : 'Enemy turn…'
-                    : hint}
-          </p>
-          {state.phase !== 'gameover' && state.active === 'player' && (
-            <button
-              type="button"
-              onClick={() => {
-                if (attacking) {
-                  setState((s) => cancelAttack(s))
-                  return
-                }
-                if (state.phase === 'main') playSfx('dawn_horn', 0.4)
-                else playSfx('surge_bolt', 0.35)
-                setState((s) => endTurn(s))
-              }}
-              className="absolute right-0 top-1/2 -translate-y-1/2 end-turn-btn"
-            >
-              <span className="end-turn-label">
-                {attacking ? 'Cancel' : 'End Turn'}
-              </span>
-            </button>
-          )}
-        </div>
+        {/* Center divider */}
+        <div className="shrink-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent my-1" />
 
-        <div className="flex gap-2 items-stretch pr-10">
-          {state.player.beasts.map((b, i) => (
-            <BoardSlot
-              key={`p${i}`}
-              beast={b}
-              side="player"
-              droppable={!!(waitingPlay && !b && state.selectedHand !== null && canPlayToSlot(state, state.selectedHand, i))}
-              selected={
-                !!b &&
-                (b.uid === state.selectedBeastUid ||
-                  b.uid === state.attackSourceUid)
-              }
-              damageFlash={b ? dmgFlash[b.uid] : null}
-              onTap={() => onSlotPlayer(i)}
-            />
-          ))}
+        {/* Player half */}
+        <div className="flex-1 flex flex-col items-center justify-start pt-1 gap-2 min-h-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-14 rounded-lg bg-amber-950/70 border border-amber-400/30 flex items-center justify-center text-[9px] text-amber-100/70 font-bold">
+              Deck
+              <br />
+              {game.player.deck.length}
+            </div>
+            {game.player.active ? (
+              <BoardMonCard
+                cardId={game.player.active.cardId}
+                hp={game.player.active.hp}
+                maxHp={game.player.active.maxHp}
+                energy={game.player.active.energy}
+                glow={glowingActiveForAction}
+                onClick={() => onSlot('active')}
+              />
+            ) : (
+              <EmptySlot
+                label={glowingActive ? 'Active Spot!' : 'Active'}
+                glow={glowingActive}
+                onClick={() => onSlot('active')}
+              />
+            )}
+            <div className="w-10 h-14 rounded-lg bg-black/40 border border-white/15 flex items-center justify-center text-[9px] text-white/40 font-bold">
+              Disc
+              <br />
+              {game.player.discard.length}
+            </div>
+          </div>
+          {/* Player bench below active */}
+          <div className="flex gap-2 items-start">
+            {game.player.bench.map((m, i) =>
+              m ? (
+                <BoardMonCard
+                  key={m.uid}
+                  cardId={m.cardId}
+                  hp={m.hp}
+                  maxHp={m.maxHp}
+                  energy={m.energy}
+                  small
+                  glow={glowingBench(i)}
+                  onClick={() => onSlot(i)}
+                />
+              ) : (
+                <EmptySlot
+                  key={i}
+                  label="Bench"
+                  size="sm"
+                  glow={
+                    game.selectedHand !== null &&
+                    selectedDef?.stage === 'basic' &&
+                    canPlayBasicTo(game, game.selectedHand, i) &&
+                    !!game.player.active
+                  }
+                  onClick={() => onSlot(i)}
+                />
+              ),
+            )}
+          </div>
         </div>
       </div>
 
       {/* Action row */}
-      {(selectedBeast?.side === 'player' ||
-        (selectedCard &&
-          selectedCard.type !== 'beast' &&
-          state.phase === 'main')) &&
-        state.phase !== 'gameover' &&
-        state.active === 'player' &&
-        !attacking && (
-          <div className="relative z-[60] mx-3 mb-1 flex justify-center">
-            <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-2xl bg-[#2a1f14]/95 border-2 border-orange-500/70 shadow-[0_0_20px_rgba(251,146,60,0.35)]">
-              {selectedBeast ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={doAttack}
-                    className="action-chip"
-                    disabled={!canBeastAttack(state, selectedBeast)}
-                  >
-                    <span>⚔️</span> Attack
-                  </button>
-                  <button type="button" onClick={doGuard} className="action-chip">
-                    <span>🛡️</span>{' '}
-                    {selectedBeast.guarding ? 'Unguard' : 'Guard'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={doApex}
-                    className="action-chip action-chip-apex"
-                  >
-                    <span>🔥</span> Apex
-                  </button>
-                  {state.player.binderId === 1 &&
-                    !state.player.binderAbilityUsed && (
-                      <button
-                        type="button"
-                        onClick={doBless}
-                        className="action-chip"
-                      >
-                        ✨ Bless
-                      </button>
-                    )}
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={playNonBeast}
-                  className="action-chip action-chip-apex"
-                >
-                  ▶ Play {selectedCard!.name}
-                </button>
-              )}
+      <div className="shrink-0 px-2 pb-1 flex items-end gap-2 z-20">
+        <div className="flex-1 min-w-0 overflow-x-auto flex gap-1.5 py-1 hand-row">
+          {game.player.hand.map((id, i) => (
+            <MiniCard
+              key={`${id}-${i}`}
+              cardId={id}
+              selected={game.selectedHand === i}
+              onClick={() => {
+                if (game.active !== 'player' && game.phase === 'main') return
+                if (game.phase === 'promote') return
+                playSfx('page_turn', 0.25)
+                apply((g) => selectHand(g, g.selectedHand === i ? null : i))
+              }}
+            />
+          ))}
+          {game.player.hand.length === 0 && (
+            <div className="text-[10px] text-white/35 py-6 px-2">No cards in hand</div>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-1.5 items-end shrink-0 pb-1">
+          {game.phase === 'setup' ? (
+            <button
+              type="button"
+              disabled={!canStart}
+              onClick={() => apply(startBattle, 'pack_howl')}
+              className={`px-3 py-2.5 rounded-2xl text-xs font-black ${
+                canStart
+                  ? 'bg-gradient-to-r from-cyan-400 to-sky-500 text-slate-950 shadow-[0_0_16px_rgba(34,211,238,0.45)]'
+                  : 'bg-white/10 text-white/30'
+              }`}
+            >
+              Start Battle
+            </button>
+          ) : (
+            <>
               <button
                 type="button"
-                onClick={() =>
-                  setState((s) => ({
-                    ...s,
-                    selectedBeastUid: null,
-                    selectedHand: null,
-                    uiMode: 'idle',
-                    attackSourceUid: null,
-                  }))
+                disabled={
+                  game.phase !== 'main' ||
+                  game.active !== 'player' ||
+                  game.energyAttachedThisTurn
                 }
-                className="w-7 h-7 rounded-full bg-black/40 border border-white/20 text-xs"
-                aria-label="Close"
+                onClick={() => apply(beginAttachMode)}
+                className={`w-12 h-12 rounded-full text-xl font-black border-2 ${
+                  game.uiMode === 'attachEnergy'
+                    ? 'bg-amber-400 border-amber-200 text-amber-950 scale-110'
+                    : game.energyAttachedThisTurn
+                      ? 'bg-white/10 border-white/15 text-white/30'
+                      : 'bg-gradient-to-br from-yellow-300 to-amber-500 border-amber-200 text-amber-950 shadow-[0_0_14px_rgba(251,191,36,0.5)]'
+                }`}
+                title="Attach Energy"
               >
-                ✕
+                ⚡
               </button>
-            </div>
-          </div>
-        )}
-
-      {/* Hand fan */}
-      <div className="relative z-10 shrink-0 h-[7.8rem] overflow-visible">
-        <div className="absolute inset-x-0 bottom-0 flex justify-center items-end h-full px-2">
-          {state.player.hand.map((id, i) => {
-            const card = cardById(id)
-            const affordable =
-              state.phase === 'main' &&
-              state.active === 'player' &&
-              state.player.storm >= card.cost
-            const mid = (handCount - 1) / 2
-            const offset = i - mid
-            const rot = offset * 6
-            const y = Math.abs(offset) * 4
-            return (
-              <div
-                key={`${id}-${i}`}
-                className="relative"
-                style={{
-                  marginLeft: i === 0 ? 0 : -28,
-                  zIndex: state.selectedHand === i ? 40 : 10 + i,
-                  transform: `rotate(${rot}deg) translateY(${state.selectedHand === i ? -18 : y}px)`,
-                }}
+              <button
+                type="button"
+                disabled={
+                  game.phase !== 'main' ||
+                  game.active !== 'player' ||
+                  game.retreatedThisTurn ||
+                  !game.player.bench.some(Boolean)
+                }
+                onClick={() => apply(beginRetreatMode)}
+                className={`px-2 py-1 rounded-lg text-[10px] font-bold border ${
+                  game.uiMode === 'retreat'
+                    ? 'bg-cyan-400/30 border-cyan-300 text-cyan-100'
+                    : 'bg-black/40 border-white/20 text-white/70'
+                }`}
               >
-                <CardFace
-                  card={card}
-                  size="hand"
-                  selected={state.selectedHand === i}
-                  dimmed={
-                    (state.phase === 'main' &&
-                      state.active === 'player' &&
-                      !affordable) ||
-                    attacking ||
-                    state.active !== 'player'
-                  }
-                  onClick={() => {
-                    if (attacking) {
-                      setState((s) => cancelAttack(s))
-                      return
-                    }
-                    if (state.phase === 'gameover') {
-                      openInspect(card, setInspect)
-                      return
-                    }
-                    if (state.selectedHand === i) {
-                      // Relic / Storm: second tap plays instantly (no board slot)
-                      if (
-                        card.type !== 'beast' &&
-                        state.phase === 'main' &&
-                        state.active === 'player'
-                      ) {
-                        if (state.player.storm < card.cost) {
-                          setHint(
-                            `Need ${card.cost}⚡ for ${card.name} (have ${state.player.storm})`,
-                          )
-                          return
-                        }
-                        const next = playCard(state, i, 0)
-                        if (next !== state) {
-                          playSfx(
-                            card.type === 'storm' ? 'surge_bolt' : 'iron_clink',
-                            0.4,
-                          )
-                          setHint(`${card.name} played.`)
-                          setState(next)
-                        } else {
-                          setHint(`Can't play ${card.name} right now.`)
-                        }
-                        return
-                      }
-                      openInspect(card, setInspect)
-                    } else {
-                      setState((s) => selectHand(s, i))
-                      if (card.type === 'beast') {
-                        const canAfford = state.player.storm >= card.cost
-                        setHint(
-                          canAfford
-                            ? `Tap an Open Slot to play ${card.name} (${card.cost}⚡)`
-                            : `Need ${card.cost}⚡ to play ${card.name} (have ${state.player.storm})`,
-                        )
-                      } else {
-                        setHint(
-                          state.player.storm >= card.cost
-                            ? `Tap ${card.name} again to play (${card.cost}⚡) — no slot needed.`
-                            : `Need ${card.cost}⚡ for ${card.name}`,
-                        )
-                      }
-                    }
-                  }}
-                />
-              </div>
-            )
-          })}
+                Retreat
+              </button>
+              <button
+                type="button"
+                disabled={game.phase !== 'main' || game.active !== 'player'}
+                onClick={() => apply(endTurn, 'page_turn')}
+                className="px-2 py-1.5 rounded-lg text-[10px] font-black bg-orange-500/90 border border-orange-300/50 text-white"
+              >
+                End Turn
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      {/* Player footer */}
-      <div className="relative z-10 shrink-0 px-3 pb-1 pt-1">
-        <div className="flex items-end gap-2">
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-500 to-amber-700 border-2 border-orange-300/50 flex items-center justify-center text-lg shadow-lg shrink-0 overflow-hidden">
-              {cardById(state.player.binderId).art ? (
-                <img
-                  src={
-                    cardById(state.player.binderId).art!.startsWith('/')
-                      ? `${import.meta.env.BASE_URL}${cardById(state.player.binderId).art!.slice(1)}`
-                      : cardById(state.player.binderId).art!
-                  }
-                  alt=""
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                '🛡️'
-              )}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-baseline justify-between gap-2">
-                <div className="font-bold text-[0.8rem] leading-tight line-clamp-1">
-                  {playerName}
-                </div>
-                <div className="text-sm font-black text-orange-300 shrink-0">
-                  {state.player.binderHp} HP
-                </div>
-              </div>
-              <HpBar
-                hp={state.player.binderHp}
-                max={BINDER_MAX_HP}
-                gradient="bg-gradient-to-r from-orange-600 via-amber-400 to-yellow-300"
-              />
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0 pb-0.5">
-            <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-black/50 border border-sky-400/30">
-              <span className="text-sky-300 text-sm drop-shadow-[0_0_6px_rgba(56,189,248,0.8)]">
-                ⚡
-              </span>
-              <span className="text-xs font-black text-sky-200 tabular-nums">
-                {state.player.storm}/{Math.max(state.player.stormMax, state.playerDawnCount, 1)}
-              </span>
-              <span className="text-[0.55rem] font-bold text-amber-300/80 ml-1">
-                Dawn {state.playerDawnCount || 1}
-              </span>
-            </div>
-            <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-black/50 border border-orange-400/30">
-              <span className="text-orange-400 text-sm">🔥</span>
-              <span className="text-xs font-black text-orange-200 tabular-nums">
-                {state.player.stormCharges}/3
-              </span>
-            </div>
-          </div>
-        </div>
-        {state.player.relics.length > 0 && (
-          <div className="flex gap-1 mt-1 flex-wrap">
-            {state.player.relics.map((r) => (
-              <span
-                key={r.uid}
-                className="text-[0.5rem] px-1.5 py-0.5 rounded bg-white/10 text-white/60"
+      {/* Attack bar */}
+      {game.phase === 'main' &&
+        game.active === 'player' &&
+        game.player.active &&
+        !game.attackedThisTurn && (
+          <div className="shrink-0 px-2 pb-2 flex gap-2 overflow-x-auto">
+            {attacks.map(({ attack, index, ready }) => (
+              <button
+                key={attack.name}
+                type="button"
+                disabled={!ready}
+                onClick={() => apply((g) => attackWith(g, index))}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-left shrink-0 ${
+                  ready
+                    ? 'bg-rose-500/25 border-rose-300/50 text-white'
+                    : 'bg-white/5 border-white/10 text-white/35'
+                }`}
               >
-                {cardById(r.cardId).name}
-                {r.usedThisTurn ? ' ✓' : ''}
-              </span>
+                <EnergyCostIcons cost={attack.energyCost} />
+                <div>
+                  <div className="text-xs font-bold">{attack.name}</div>
+                  <div className="text-[10px] text-rose-200">{attack.damage} dmg</div>
+                </div>
+              </button>
             ))}
           </div>
         )}
+
+      {/* Mode hints */}
+      {game.uiMode === 'attachEnergy' && (
+        <div className="absolute bottom-36 left-0 right-0 text-center text-xs font-bold text-amber-200 z-20">
+          Tap Active or Bench to attach ⚡
+        </div>
+      )}
+      {game.uiMode === 'retreat' && (
+        <div className="absolute bottom-36 left-0 right-0 text-center text-xs font-bold text-cyan-200 z-20">
+          Tap a Bench Pokémon to switch in
+        </div>
+      )}
+      {game.uiMode === 'promotePick' && (
+        <div className="absolute bottom-36 left-0 right-0 text-center text-xs font-bold text-violet-200 z-20">
+          Your Active was KO'd — pick a Bench Pokémon!
+        </div>
+      )}
+      {game.phase === 'setup' && selectedDef && selectedDef.stage !== 'basic' && (
+        <div className="absolute bottom-36 left-0 right-0 text-center text-xs font-bold text-amber-200 z-20">
+          Select a Basic — Stage cards evolve later
+        </div>
+      )}
+
+      {/* Toasts */}
+      <div className="absolute top-24 left-0 right-0 flex flex-col items-center gap-1 pointer-events-none z-40">
+        {game.toasts.map((t) => (
+          <div
+            key={t.id}
+            className={`px-3 py-1.5 rounded-full text-xs font-bold shadow-lg ${
+              t.kind === 'ko' || t.kind === 'win'
+                ? 'bg-amber-400 text-amber-950'
+                : t.kind === 'damage'
+                  ? 'bg-rose-500 text-white'
+                  : t.kind === 'ability'
+                    ? 'bg-violet-500 text-white'
+                    : 'bg-white/90 text-slate-900'
+            }`}
+          >
+            {t.text}
+          </div>
+        ))}
       </div>
 
-      {state.phase === 'gameover' && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-6">
-          <div className="w-full max-w-sm rounded-3xl border border-orange-400/40 bg-[#1a1410] p-6 text-center space-y-3 shadow-[0_0_40px_rgba(251,146,60,0.3)]">
-            <div className="text-3xl font-black">
-              {state.winner === 'player' ? 'Victory!' : 'Defeat'}
+      {/* Game over */}
+      {game.phase === 'gameover' && (
+        <div className="absolute inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="bg-gradient-to-b from-[#1a1520] to-[#0a0a0e] border border-white/15 rounded-3xl p-6 max-w-sm w-full text-center space-y-3">
+            <div className="text-2xl font-black">
+              {game.winner === 'player' ? 'Victory!' : 'Defeat'}
             </div>
-            <div className="text-sm text-white/70">{state.winReason}</div>
+            <p className="text-sm text-white/65">{game.winReason}</p>
+            <p className="text-xs text-amber-200">
+              You {game.player.points} — {game.enemy.points} Enemy
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                playSfx('win_sting', 0.55)
+                setGame(createGame(false))
+              }}
+              className="w-full py-3 rounded-2xl font-black bg-gradient-to-r from-amber-400 to-orange-500 text-amber-950"
+            >
+              Play Again
+            </button>
             <button
               type="button"
               onClick={onQuit}
-              className="w-full py-3 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 font-bold text-black"
+              className="w-full py-2 rounded-2xl font-bold bg-white/10 border border-white/15"
             >
-              Return Home
+              Home
             </button>
           </div>
         </div>
       )}
 
-      {inspect && (
-        <InspectOverlay card={inspect} onClose={() => setInspect(null)} />
+      {inspectId && (
+        <InspectCard card={cardById(inspectId)} onClose={() => setInspectId(null)} />
       )}
     </div>
   )

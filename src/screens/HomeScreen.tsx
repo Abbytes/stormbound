@@ -1,51 +1,51 @@
-interface Props {
-  onPlay: (faction: 'dawn' | 'pack') => void
-  onBinder: () => void
-}
-
-export function HomeScreen({ onPlay, onBinder }: Props) {
+export function HomeScreen({
+  onPlay,
+  onCards,
+}: {
+  onPlay: () => void
+  onCards: () => void
+}) {
   return (
-    <div className="flex-1 flex flex-col items-center justify-between px-5 py-6 bg-storm-home text-white min-h-0 overflow-y-auto">
-      <div className="w-full max-w-md flex-1 flex flex-col items-center justify-center gap-5">
-        <div className="text-center space-y-2">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-orange-500/10 border border-orange-400/30 text-[0.65rem] uppercase tracking-[0.25em] text-orange-200/90">
-            Dark Fantasy TCG
+    <div className="flex-1 min-h-0 overflow-y-auto bg-storm-home">
+      <div className="px-5 pt-10 pb-6 flex flex-col min-h-full">
+        <div className="text-center mb-8">
+          <div className="inline-block px-3 py-1 rounded-full text-[10px] font-bold tracking-[0.2em] uppercase bg-amber-500/15 text-amber-200 border border-amber-400/30 mb-3">
+            Pocket Duel
           </div>
-          <h1 className="text-5xl font-black tracking-tight bg-gradient-to-br from-amber-200 via-orange-300 to-violet-300 bg-clip-text text-transparent drop-shadow">
+          <h1 className="text-4xl font-black tracking-tight bg-gradient-to-br from-amber-100 via-orange-200 to-violet-300 bg-clip-text text-transparent">
             Stormbound
           </h1>
-          <p className="text-sm text-white/60 max-w-xs mx-auto leading-relaxed">
-            Dawnpack vs Pack of the Dead. Armored beasts, lightning, and Apex power.
+          <p className="mt-2 text-sm text-white/55 leading-relaxed max-w-xs mx-auto">
+            First to 3 points. Active Spot · Bench · Energy · Evolve.
           </p>
         </div>
 
-        <div className="w-full space-y-3 mt-2">
+        <div className="rounded-3xl border border-white/10 bg-white/5 p-4 mb-4">
+          <div className="text-xs font-bold text-amber-200/90 mb-1">Dawnpack vs Pack AI</div>
+          <p className="text-[11px] text-white/50 leading-snug mb-3">
+            Tutorial first match. Put a Basic in Active, Start Battle, attach ⚡, attack.
+          </p>
           <button
             type="button"
-            onClick={() => onPlay('dawn')}
-            className="w-full py-4 rounded-2xl font-bold text-lg bg-gradient-to-r from-orange-500 to-amber-500 text-black shadow-lg shadow-orange-500/30 active:scale-[0.98] transition"
+            onClick={onPlay}
+            className="w-full py-3.5 rounded-2xl font-black text-base bg-gradient-to-r from-amber-400 to-orange-500 text-amber-950 shadow-[0_0_24px_rgba(251,146,60,0.35)]"
           >
-            Play — Dawnpack
-          </button>
-          <button
-            type="button"
-            onClick={() => onPlay('pack')}
-            className="w-full py-4 rounded-2xl font-bold text-lg bg-gradient-to-r from-violet-600 to-fuchsia-700 shadow-lg shadow-violet-500/30 active:scale-[0.98] transition"
-          >
-            Play — Pack of the Dead
-          </button>
-          <button
-            type="button"
-            onClick={onBinder}
-            className="w-full py-4 rounded-2xl font-bold text-lg bg-white/10 border border-amber-500/30 active:scale-[0.98] transition"
-          >
-            Open Binder
+            Play
           </button>
         </div>
+
+        <button
+          type="button"
+          onClick={onCards}
+          className="w-full py-3 rounded-2xl font-bold text-sm bg-white/8 border border-white/12 text-white/85"
+        >
+          Cards — Collection
+        </button>
+
+        <div className="mt-auto pt-8 text-center text-[10px] text-white/30">
+          KO Basic/Stage = 1 · Apex = 2 · Weakness +20
+        </div>
       </div>
-      <p className="text-[0.65rem] text-white/35 text-center pb-1">
-        Ab Creative · Stormbound · Portrait TCG
-      </p>
     </div>
   )
 }

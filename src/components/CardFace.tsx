@@ -1,275 +1,226 @@
-import type { CardDef, Rarity } from '../types/cards'
+import { cardById } from '../data/cards'
+import { STAGE_LABEL, RARITY_GEMS, type CardDef } from '../types/cards'
+import { EnergyCostIcons } from './EnergyPips'
 
-interface Props {
-  card: CardDef
-  size?: 'hand' | 'board' | 'inspect' | 'binder'
-  selected?: boolean
-  dimmed?: boolean
-  compact?: boolean
-  atk?: number
-  def?: number
-  hp?: number
-  maxHp?: number
-  targetable?: boolean
-  onClick?: () => void
-  className?: string
+const base = () => import.meta.env.BASE_URL || '/'
+
+export function cardArtSrc(card: CardDef): string {
+  return `${base()}${card.art}`
 }
 
-const RARITY_LABEL: Record<Rarity, string> = {
-  common: 'COMMON',
-  rare: 'RARE',
-  epic: 'EPIC',
-  apex: 'APEX',
-}
-
-function artGlyph(card: CardDef): string {
-  if (card.type === 'storm') return '⚡'
-  if (card.type === 'relic') return '⚔️'
-  if (card.type === 'binder') return '👑'
-  const t = card.tags.join(' ').toLowerCase()
-  if (t.includes('wolf') || t.includes('hound') || t.includes('howl')) return '🐺'
-  if (t.includes('stag') || t.includes('elk')) return '🦌'
-  if (t.includes('fox')) return '🦊'
-  if (t.includes('boar') || t.includes('bear')) return '🐗'
-  if (t.includes('cub') || t.includes('lion')) return '🦁'
-  if (t.includes('wyvern') || t.includes('phoenix') || t.includes('raven')) return '🦅'
-  if (t.includes('ram') || t.includes('goat')) return '🐏'
-  if (t.includes('vulture')) return '🪶'
-  return '🐾'
-}
-
-function borderClass(rarity: Rarity): string {
-  if (rarity === 'apex') {
-    return 'border-[3px] border-amber-300 card-apex-glow'
-  }
-  if (rarity === 'epic') {
-    return 'border-[1.5px] border-violet-400/80 shadow-[0_0_10px_rgba(167,139,250,0.35)]'
-  }
-  if (rarity === 'rare') {
-    return 'border-[1.5px] border-sky-400/70 shadow-[0_0_8px_rgba(56,189,248,0.25)]'
-  }
-  return 'border border-amber-700/60 shadow-[0_4px_12px_rgba(0,0,0,0.55)]'
-}
-
-function artBg(card: CardDef): string {
-  if (card.faction === 'dawn') {
-    return 'bg-[radial-gradient(ellipse_at_30%_20%,rgba(56,189,248,0.45),transparent_55%),radial-gradient(ellipse_at_80%_80%,rgba(251,191,36,0.25),transparent_50%),linear-gradient(160deg,#0c1a2e,#1a0f08)]'
-  }
-  if (card.faction === 'pack') {
-    return 'bg-[radial-gradient(ellipse_at_30%_20%,rgba(168,85,247,0.5),transparent_55%),radial-gradient(ellipse_at_70%_90%,rgba(244,63,94,0.25),transparent_50%),linear-gradient(160deg,#1a0a22,#0a0610)]'
-  }
-  return 'bg-[radial-gradient(ellipse_at_50%_30%,rgba(148,163,184,0.35),transparent_55%),linear-gradient(160deg,#1e293b,#0f172a)]'
-}
-
-const SIZE: Record<NonNullable<Props['size']>, string> = {
-  hand: 'w-[5.6rem] h-[8.4rem]',
-  board: 'w-full h-full min-h-0',
-  inspect: 'w-48 h-[17.5rem]',
-  binder: 'w-[7.2rem] h-[10.8rem]',
-}
-
-export function CardFace({
-  card,
-  size = 'hand',
+export function MiniCard({
+  cardId,
   selected,
-  dimmed,
-  compact,
-  atk,
-  def,
-  hp,
-  maxHp,
-  targetable,
   onClick,
-  className = '',
-}: Props) {
-  const showStats = card.type === 'beast' || atk !== undefined
-  const a = atk ?? card.atk ?? 0
-  const d = def ?? card.def ?? 0
-  const h = hp ?? card.hp ?? 0
-  const mh = maxHp ?? card.hp ?? h
-  const hurt = h < mh
-  const tiny = size === 'board' || compact
-  const artSrc = card.art
-    ? card.art.startsWith('http') || card.art.startsWith('/')
-      ? card.art
-      : `${import.meta.env.BASE_URL}${card.art.replace(/^\//, '')}`
-    : null
-
+  dimmed,
+}: {
+  cardId: string
+  selected?: boolean
+  onClick?: () => void
+  dimmed?: boolean
+}) {
+  const card = cardById(cardId)
   return (
     <button
       type="button"
       onClick={onClick}
-      className={[
-        'relative flex flex-col overflow-hidden rounded-xl text-left transition-transform active:scale-[0.97]',
-        'bg-gradient-to-b from-[#2a241c] via-[#1a1612] to-[#0d0b09]',
-        SIZE[size],
-        borderClass(card.rarity),
-        selected ? 'scale-105 -translate-y-3 z-20 ring-2 ring-orange-400' : '',
-        targetable
-          ? 'ring-2 ring-rose-400 scale-[1.03] shadow-[0_0_18px_rgba(244,63,94,0.55)]'
-          : '',
-        dimmed ? 'opacity-35 grayscale-[55%] brightness-75' : '',
-        className,
-      ].join(' ')}
+      className={`relative shrink-0 w-[4.4rem] h-[6.2rem] rounded-xl overflow-hidden border-2 transition-transform ${
+        selected
+          ? 'border-amber-300 -translate-y-3 shadow-[0_0_16px_rgba(251,191,36,0.55)]'
+          : 'border-white/25'
+      } ${dimmed ? 'opacity-50' : ''}`}
     >
-      <div className="pointer-events-none absolute inset-[2px] rounded-[10px] border border-white/10" />
+      <img
+        src={cardArtSrc(card)}
+        alt={card.name}
+        className="absolute inset-0 w-full h-full object-cover"
+        draggable={false}
+      />
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-1">
+        <div className="text-[8px] font-bold leading-tight truncate">{card.name}</div>
+        <div className="text-[8px] text-rose-300 font-semibold">HP {card.hp}</div>
+      </div>
+      {card.stage === 'apex' && (
+        <div className="absolute top-0.5 right-0.5 text-[8px] font-black text-amber-300 bg-black/50 px-1 rounded">
+          EX
+        </div>
+      )}
+    </button>
+  )
+}
 
-      <div className="relative z-10 flex items-start justify-between gap-1 px-1.5 pt-1.5 pb-0.5">
-        <div
-          className={[
-            'font-bold text-white leading-tight line-clamp-2 flex-1 pr-1',
-            tiny ? 'text-[0.52rem]' : size === 'inspect' ? 'text-sm' : 'text-[0.62rem]',
-          ].join(' ')}
-        >
+export function BoardMonCard({
+  cardId,
+  hp,
+  maxHp,
+  energy,
+  glow,
+  small,
+  onClick,
+  label,
+}: {
+  cardId: string
+  hp: number
+  maxHp: number
+  energy: number
+  glow?: boolean
+  small?: boolean
+  onClick?: () => void
+  label?: string
+}) {
+  const card = cardById(cardId)
+  const w = small ? 'w-[3.6rem] h-[5rem]' : 'w-[5.5rem] h-[7.6rem]'
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`relative ${w} rounded-2xl overflow-hidden border-2 transition ${
+        glow
+          ? 'border-cyan-300 shadow-[0_0_22px_rgba(34,211,238,0.65)] scale-105'
+          : 'border-white/30'
+      } bg-black/40`}
+    >
+      <img
+        src={cardArtSrc(card)}
+        alt={card.name}
+        className="absolute inset-0 w-full h-full object-cover"
+        draggable={false}
+      />
+      <div className="absolute top-0.5 left-0.5 right-0.5 flex justify-between items-start">
+        <span className="text-[8px] font-bold bg-black/55 px-1 rounded text-white/90">
+          {STAGE_LABEL[card.stage]}
+        </span>
+        <span className="text-[9px] font-black text-rose-200 bg-black/55 px-1 rounded">
+          {hp}/{maxHp}
+        </span>
+      </div>
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent pt-4 pb-1 px-1">
+        <div className={`font-bold leading-tight truncate ${small ? 'text-[8px]' : 'text-[10px]'}`}>
           {card.name}
         </div>
-        {card.cost > 0 && (
-          <div
-            className={[
-              'shrink-0 rounded-full bg-gradient-to-br from-sky-300 via-blue-500 to-indigo-700',
-              'text-white font-black flex items-center justify-center shadow-[0_0_8px_rgba(56,189,248,0.6)]',
-              'border border-sky-200/60',
-              tiny ? 'w-4 h-4 text-[0.5rem]' : 'w-5 h-5 text-[0.65rem]',
-            ].join(' ')}
-          >
-            {card.cost}
-          </div>
-        )}
-      </div>
-
-      <div
-        className={[
-          'relative mx-1.5 rounded-md overflow-hidden border border-black/50',
-          tiny ? 'flex-[1.15] min-h-0' : 'flex-[1.4] min-h-[38%]',
-          artSrc ? 'bg-black' : artBg(card),
-        ].join(' ')}
-      >
-        {artSrc ? (
-          <img
-            src={artSrc}
-            alt=""
-            className="absolute inset-0 w-full h-full object-cover object-top"
-            draggable={false}
-          />
-        ) : (
-          <>
-            <div className="absolute inset-0 opacity-40 bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2240%22 height=%2240%22><path d=%22M0 20 Q10 0 20 20 T40 20%22 stroke=%22%23fff%22 stroke-opacity=%220.08%22 fill=%22none%22/></svg>')]" />
-            <div
-              className={[
-                'absolute inset-0 flex items-center justify-center',
-                tiny ? 'text-2xl' : size === 'inspect' ? 'text-6xl' : 'text-3xl',
-                'drop-shadow-[0_0_12px_rgba(255,255,255,0.25)]',
-              ].join(' ')}
-            >
-              {artGlyph(card)}
-            </div>
-          </>
-        )}
-        {card.rarity === 'apex' && (
-          <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_50%_120%,rgba(251,191,36,0.35),transparent_55%)]" />
-        )}
-        <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-black/50 via-transparent to-black/10" />
-      </div>
-
-      <div
-        className={[
-          'mx-1.5 mt-1 mb-0.5 rounded bg-black/55 border border-white/5 px-1 py-0.5',
-          tiny ? 'min-h-[1.6rem]' : 'min-h-[2.1rem]',
-        ].join(' ')}
-      >
-        <p
-          className={[
-            'text-white/85 leading-snug',
-            tiny
-              ? 'text-[0.42rem] line-clamp-3'
-              : size === 'inspect'
-                ? 'text-[0.7rem] line-clamp-4'
-                : 'text-[0.5rem] line-clamp-3',
-          ].join(' ')}
-        >
-          {card.ability}
-        </p>
-      </div>
-
-      <div
-        className={[
-          'relative z-10 mt-auto flex items-center justify-between gap-0.5 px-1 pb-1 pt-0.5',
-          'bg-gradient-to-t from-black/80 to-transparent',
-        ].join(' ')}
-      >
-        {showStats ? (
-          <>
-            <div className="flex items-center gap-0.5 min-w-0">
-              <span className={tiny ? 'text-[0.55rem]' : 'text-[0.7rem]'}>⚔️</span>
-              <span
-                className={[
-                  'font-black text-rose-300',
-                  tiny ? 'text-[0.55rem]' : 'text-[0.7rem]',
-                ].join(' ')}
-              >
-                {a}
-              </span>
-            </div>
-            <div className="flex items-center gap-0.5 min-w-0">
-              <span className={tiny ? 'text-[0.55rem]' : 'text-[0.7rem]'}>🛡️</span>
-              <span
-                className={[
-                  'font-black text-sky-300',
-                  tiny ? 'text-[0.55rem]' : 'text-[0.7rem]',
-                ].join(' ')}
-              >
-                {d}
-              </span>
-            </div>
-            <div
-              className={[
-                'px-1 rounded font-black tracking-wide text-center truncate',
-                card.rarity === 'apex'
-                  ? 'text-amber-300 bg-amber-500/20'
-                  : card.rarity === 'epic'
-                    ? 'text-violet-300 bg-violet-500/20'
-                    : card.rarity === 'rare'
-                      ? 'text-sky-300 bg-sky-500/20'
-                      : 'text-stone-300 bg-stone-500/20',
-                tiny ? 'text-[0.38rem] max-w-[2.2rem]' : 'text-[0.48rem] max-w-[2.8rem]',
-              ].join(' ')}
-            >
-              {RARITY_LABEL[card.rarity]}
-            </div>
-            <div className="flex items-center gap-0.5 min-w-0">
-              <span className={tiny ? 'text-[0.55rem]' : 'text-[0.7rem]'}>❤️</span>
-              <span
-                className={[
-                  'font-black tabular-nums',
-                  hurt ? 'text-rose-300' : 'text-emerald-300',
-                  tiny ? 'text-[0.55rem]' : 'text-[0.7rem]',
-                ].join(' ')}
-              >
-                {tiny && maxHp !== undefined ? (
-                  <>
-                    {h}
-                    <span className="opacity-55 text-[0.85em]">/{mh}</span>
-                  </>
-                ) : (
-                  h
-                )}
-              </span>
-            </div>
-          </>
-        ) : (
-          <div className="w-full text-center">
+        <div className="flex justify-center mt-0.5">
+          {Array.from({ length: Math.min(energy, 4) }).map((_, i) => (
             <span
-              className={[
-                'px-1.5 py-0.5 rounded font-black tracking-wide',
-                card.rarity === 'apex' ? 'text-amber-300' : 'text-white/70',
-                tiny ? 'text-[0.4rem]' : 'text-[0.55rem]',
-              ].join(' ')}
+              key={i}
+              className="w-2.5 h-2.5 rounded-full bg-amber-400 text-[7px] flex items-center justify-center -ml-0.5 first:ml-0 border border-amber-200"
             >
-              {card.type.toUpperCase()} · {RARITY_LABEL[card.rarity]}
+              ⚡
+            </span>
+          ))}
+          {energy > 4 && (
+            <span className="text-[8px] text-amber-200 ml-0.5">+{energy - 4}</span>
+          )}
+        </div>
+      </div>
+      {label && (
+        <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[9px] text-white/70 whitespace-nowrap">
+          {label}
+        </div>
+      )}
+    </button>
+  )
+}
+
+export function InspectCard({
+  card,
+  onClose,
+}: {
+  card: CardDef
+  onClose: () => void
+}) {
+  const gems = RARITY_GEMS[card.rarity]
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="relative w-full max-w-sm rounded-3xl overflow-hidden border border-white/20 bg-gradient-to-b from-[#1a1520] to-[#0a0a0e] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="relative aspect-[3/4] max-h-[52vh]">
+          <img
+            src={cardArtSrc(card)}
+            alt={card.name}
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0e] via-transparent to-black/30" />
+          <div className="absolute top-3 left-3 right-3 flex justify-between">
+            <span className="text-xs font-bold bg-black/50 px-2 py-1 rounded-full">
+              {STAGE_LABEL[card.stage]}
+              {card.evoFrom ? ` · Evolves from ${cardById(card.evoFrom).name}` : ''}
+            </span>
+            <span className="text-sm font-black text-rose-300 bg-black/50 px-2 py-1 rounded-full">
+              HP {card.hp}
             </span>
           </div>
-        )}
+        </div>
+        <div className="p-4 -mt-8 relative space-y-3">
+          <div className="flex items-end justify-between gap-2">
+            <h2 className="text-2xl font-black tracking-tight">{card.name}</h2>
+            <div className="flex gap-0.5">
+              {Array.from({ length: gems }).map((_, i) => (
+                <span key={i} className="text-amber-300 text-sm">
+                  ◆
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="text-[10px] uppercase tracking-widest text-white/45">
+            {card.faction === 'dawn' ? 'Dawnpack' : 'Pack of the Dead'} · {card.rarity}
+            {card.koPoints === 2 ? ' · KO = 2 pts' : ''}
+          </div>
+
+          {card.ability && (
+            <div className="rounded-xl bg-violet-500/15 border border-violet-400/30 p-3">
+              <div className="text-xs font-bold text-violet-200 mb-0.5">
+                Ability: {card.ability.name}
+              </div>
+              <p className="text-xs text-white/75 leading-snug">{card.ability.description}</p>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            {card.attacks.map((a) => (
+              <div
+                key={a.name}
+                className="flex items-center justify-between gap-2 rounded-xl bg-white/5 border border-white/10 px-3 py-2"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <EnergyCostIcons cost={a.energyCost} />
+                  <div className="min-w-0">
+                    <div className="text-sm font-bold truncate">{a.name}</div>
+                    {a.note && (
+                      <div className="text-[10px] text-amber-200/80 truncate">{a.note}</div>
+                    )}
+                  </div>
+                </div>
+                <div className="text-lg font-black text-rose-200 tabular-nums">{a.damage}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex justify-between text-xs text-white/60 pt-1">
+            <span>
+              Weakness:{' '}
+              <span className="text-rose-300 font-semibold">
+                {card.weaknessFaction === 'dawn' ? 'Dawnpack' : 'Pack'} +20
+              </span>
+            </span>
+            <span>
+              Retreat: <span className="text-cyan-300 font-semibold">Free</span>
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full mt-1 py-3 rounded-2xl bg-white/10 border border-white/15 font-bold"
+          >
+            Close
+          </button>
+        </div>
       </div>
-    </button>
+    </div>
   )
 }

@@ -1,96 +1,82 @@
 import {
-  CARDS,
-  TUTORIAL_DAWN_DECK,
-  TUTORIAL_PACK_DECK,
+  DAWNPACK_DECK,
+  PACK_DECK,
   cardById,
 } from '../data/cards'
-import type { CardDef, Faction, Keyword } from '../types/cards'
-
-export const BOARD_SLOTS = 3
-export const BINDER_MAX_HP = 20
-export const HAND_SOFT_CAP = 7
+import type { AttackDef, CardDef } from '../types/cards'
 
 export type Side = 'player' | 'enemy'
-export type Phase = 'dawn' | 'main' | 'hunt' | 'dusk' | 'gameover'
-export type UiMode = 'idle' | 'play' | 'attack'
+export type Phase =
+  | 'setup'
+  | 'main'
+  | 'promote'
+  | 'gameover'
 
-export interface BoardBeast {
+export type UiMode =
+  | 'idle'
+  | 'placeBasic'
+  | 'attachEnergy'
+  | 'retreat'
+  | 'attackPick'
+  | 'promotePick'
+
+export interface BattleMon {
   uid: string
-  cardId: number
-  atk: number
-  def: number
+  cardId: string
   hp: number
   maxHp: number
-  keywords: Keyword[]
-  ward: boolean
-  summonSick: boolean
-  bonded: boolean
-  huntMarked: boolean
-  attacking: boolean
-  guarding: boolean
-  attackedThisTurn: boolean
-  blockingUid?: string
-  tempAtk: number
-  apexUsed: boolean
-  side: Side
-  slot: number
+  energy: number
+  /** Damage taken (maxHp - hp) kept on evolve */
+  damage: number
+  /** Ward: first hit this turn reduced to 0 */
+  wardReady: boolean
+  justPlayed: boolean
+  /** Evolution chain card ids from basic up */
+  evoStack: string[]
 }
 
-export interface BoardRelic {
-  uid: string
-  cardId: number
-  side: Side
-  usedThisTurn: boolean
+export interface SideState {
+  active: BattleMon | null
+  bench: (BattleMon | null)[]
+  hand: string[]
+  deck: string[]
+  discard: string[]
+  points: number
 }
 
-export interface PlayerState {
-  binderId: number
-  binderHp: number
-  storm: number
-  stormMax: number
-  stormCap: number
-  stormCharges: number
-  hand: number[]
-  deck: number[]
-  discard: number[]
-  beasts: (BoardBeast | null)[]
-  relics: BoardRelic[]
-  binderAbilityUsed: boolean
-  faction: Faction
-}
-
-export interface CombatFx {
+export interface Toast {
   id: number
   text: string
-  kind: 'enter' | 'damage' | 'phase' | 'kill' | 'info'
-  targetUid?: string
-  amount?: number
+  kind: 'info' | 'damage' | 'ko' | 'win' | 'ability'
 }
 
 export interface GameState {
-  turn: number
-  playerDawnCount: number
-  enemyDawnCount: number
-  active: Side
   phase: Phase
-  player: PlayerState
-  enemy: PlayerState
-  log: string[]
+  turn: number
+  active: Side
+  player: SideState
+  enemy: SideState
+  /** Whose Active was KO'd and needs promote */
+  promoteSide: Side | null
+  energyAttachedThisTurn: boolean
+  retreatedThisTurn: boolean
+  attackedThisTurn: boolean
+  selectedHand: number | null
+  selectedAttack: number | null
+  uiMode: UiMode
   winner: Side | null
   winReason: string
-  selectedHand: number | null
-  selectedBeastUid: string | null
-  uiMode: UiMode
-  attackSourceUid: string | null
-  playerFaction: 'dawn' | 'pack'
-  bannerBonus: boolean
-  howlBuffActive: boolean
-  fx: CombatFx[]
-  fxSeq: number
+  log: string[]
+  toasts: Toast[]
+  toastSeq: number
+  tutorialStep: number
+  firstMatch: boolean
+  setupStarted: boolean
+  sfxQueue: string[]
 }
 
 let uidCounter = 0
-const uid = () => `u${++uidCounter}`
+const uid = () => `m${++uidCounter}`
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr]
@@ -101,1216 +87,890 @@ function shuffle<T>(arr: T[]): T[] {
   return a
 }
 
-function makePlayer(
-  binderId: number,
-  deckIds: number[],
-  faction: Faction,
-  opening: number[] = [],
-): PlayerState {
-  let pool = [...deckIds]
-  const hand: number[] = []
-  for (const id of opening) {
-    const idx = pool.indexOf(id)
-    if (idx >= 0) {
-      pool.splice(idx, 1)
-      hand.push(id)
-    }
-  }
-  pool = shuffle(pool)
-  while (hand.length < 4 && pool.length) hand.push(pool.shift()!)
+function cloneSide(s: SideState): SideState {
   return {
-    binderId,
-    binderHp: 20,
-    storm: 0,
-    stormMax: 0,
-    stormCap: 8,
-    stormCharges: 0,
-    hand,
-    deck: pool,
-    discard: [],
-    beasts: [null, null, null],
-    relics: [],
-    binderAbilityUsed: false,
-    faction,
+    ...s,
+    hand: [...s.hand],
+    deck: [...s.deck],
+    discard: [...s.discard],
+    bench: s.bench.map((b) => (b ? { ...b, evoStack: [...b.evoStack] } : null)),
+    active: s.active
+      ? { ...s.active, evoStack: [...s.active.evoStack] }
+      : null,
   }
 }
 
-function pushFx(
-  state: GameState,
-  text: string,
-  kind: CombatFx['kind'],
-  extra?: Partial<CombatFx>,
-): GameState {
-  const id = state.fxSeq + 1
+function cloneState(g: GameState): GameState {
   return {
-    ...state,
-    fxSeq: id,
-    fx: [...state.fx.slice(-8), { id, text, kind, ...extra }],
+    ...g,
+    player: cloneSide(g.player),
+    enemy: cloneSide(g.enemy),
+    log: [...g.log],
+    toasts: [...g.toasts],
+    sfxQueue: [...g.sfxQueue],
   }
 }
 
-export function createTutorialGame(playerFaction: 'dawn' | 'pack'): GameState {
-  uidCounter = 0
-  const playerIsDawn = playerFaction === 'dawn'
-  const dawnOpen = [3, 5, 7, 19]
-  const packOpen = [11, 12, 14, 20]
-  const player = makePlayer(
-    playerIsDawn ? 1 : 2,
-    playerIsDawn ? TUTORIAL_DAWN_DECK : TUTORIAL_PACK_DECK,
-    playerFaction,
-    playerIsDawn ? dawnOpen : packOpen,
-  )
-  const enemy = makePlayer(
-    playerIsDawn ? 2 : 1,
-    playerIsDawn ? TUTORIAL_PACK_DECK : TUTORIAL_DAWN_DECK,
-    playerIsDawn ? 'pack' : 'dawn',
-    playerIsDawn ? packOpen : dawnOpen,
-  )
-  const state: GameState = {
-    turn: 1,
-    playerDawnCount: 0,
-    enemyDawnCount: 0,
+function pushLog(g: GameState, msg: string) {
+  g.log = [...g.log.slice(-40), msg]
+}
+
+
+function enqueueSfx(g: GameState, name: string) {
+  g.sfxQueue = [...g.sfxQueue, name]
+}
+
+function toast(g: GameState, text: string, kind: Toast['kind'] = 'info') {
+  g.toastSeq += 1
+  g.toasts = [...g.toasts.slice(-4), { id: g.toastSeq, text, kind }]
+}
+
+function makeMon(cardId: string): BattleMon {
+  const c = cardById(cardId)
+  return {
+    uid: uid(),
+    cardId,
+    hp: c.hp,
+    maxHp: c.hp,
+    energy: 0,
+    damage: 0,
+    wardReady: c.ability?.trigger === 'ward',
+    justPlayed: true,
+    evoStack: [cardId],
+  }
+}
+
+function sideOf(g: GameState, side: Side): SideState {
+  return side === 'player' ? g.player : g.enemy
+}
+
+function setSide(g: GameState, side: Side, s: SideState) {
+  if (side === 'player') g.player = s
+  else g.enemy = s
+}
+
+function draw(g: GameState, side: Side, n = 1) {
+  const s = sideOf(g, side)
+  for (let i = 0; i < n; i++) {
+    if (s.deck.length === 0) break
+    const [top, ...rest] = s.deck
+    s.hand = [...s.hand, top]
+    s.deck = rest
+  }
+}
+
+function ensureOpeningBasic(hand: string[], deck: string[]): {
+  hand: string[]
+  deck: string[]
+} {
+  // Mulligan-lite: if no Basic in opening hand, dig until we have one
+  let h = [...hand]
+  let d = [...deck]
+  const hasBasic = () => h.some((id) => cardById(id).stage === 'basic')
+  let guard = 40
+  while (!hasBasic() && d.length > 0 && guard-- > 0) {
+    // put hand back, reshuffle, redraw 5
+    d = shuffle([...d, ...h])
+    h = d.splice(0, 5)
+  }
+  return { hand: h, deck: d }
+}
+
+const FIRST_MATCH_KEY = 'stormbound_pocket_played'
+
+export function createGame(firstMatch?: boolean): GameState {
+  const played =
+    typeof localStorage !== 'undefined' &&
+    localStorage.getItem(FIRST_MATCH_KEY) === '1'
+  const isFirst = firstMatch ?? !played
+
+  let pDeck = shuffle([...DAWNPACK_DECK])
+  let eDeck = shuffle([...PACK_DECK])
+  let pHand = pDeck.splice(0, 5)
+  let eHand = eDeck.splice(0, 5)
+  ;({ hand: pHand, deck: pDeck } = ensureOpeningBasic(pHand, pDeck))
+  ;({ hand: eHand, deck: eDeck } = ensureOpeningBasic(eHand, eDeck))
+
+  const g: GameState = {
+    phase: 'setup',
+    turn: 0,
     active: 'player',
-    phase: 'dawn',
-    player,
-    enemy,
-    log: ['Storm gathers over the ruined keep…'],
+    player: {
+      active: null,
+      bench: [null, null, null],
+      hand: pHand,
+      deck: pDeck,
+      discard: [],
+      points: 0,
+    },
+    enemy: {
+      active: null,
+      bench: [null, null, null],
+      hand: eHand,
+      deck: eDeck,
+      discard: [],
+      points: 0,
+    },
+    promoteSide: null,
+    energyAttachedThisTurn: false,
+    retreatedThisTurn: false,
+    attackedThisTurn: false,
+    selectedHand: null,
+    selectedAttack: null,
+    uiMode: 'placeBasic',
     winner: null,
     winReason: '',
-    selectedHand: null,
-    selectedBeastUid: null,
-    uiMode: 'idle',
-    attackSourceUid: null,
-    playerFaction,
-    bannerBonus: false,
-    howlBuffActive: false,
-    fx: [],
-    fxSeq: 0,
+    log: ['Setup — put a Basic into your Active Spot.'],
+    toasts: [],
+    toastSeq: 0,
+    tutorialStep: isFirst ? 0 : 99,
+    firstMatch: isFirst,
+    setupStarted: false,
+    sfxQueue: [],
   }
-  return runDawn(state)
+
+  // AI auto-setup Active + optional bench
+  aiSetup(g)
+  return g
 }
 
-function sideOf(state: GameState, side: Side): PlayerState {
-  return side === 'player' ? state.player : state.enemy
+function aiSetup(g: GameState) {
+  const basics = g.enemy.hand
+    .map((id, i) => ({ id, i }))
+    .filter((x) => cardById(x.id).stage === 'basic')
+  if (basics.length === 0) return
+  // Active = first basic
+  const [first, ...rest] = basics
+  const hand = [...g.enemy.hand]
+  hand.splice(first.i, 1)
+  g.enemy.active = makeMon(first.id)
+  g.enemy.hand = hand
+  // Bench up to 2 more
+  let placed = 0
+  for (const b of rest) {
+    if (placed >= 2) break
+    const idx = g.enemy.hand.indexOf(b.id)
+    if (idx < 0) continue
+    const slot = g.enemy.bench.findIndex((x) => x === null)
+    if (slot < 0) break
+    g.enemy.hand = g.enemy.hand.filter((_, i) => i !== idx)
+    const bench = [...g.enemy.bench]
+    bench[slot] = makeMon(b.id)
+    g.enemy.bench = bench
+    placed++
+  }
 }
 
-function otherSide(side: Side): Side {
-  return side === 'player' ? 'enemy' : 'player'
+export function dismissToast(g: GameState, id: number): GameState {
+  const n = cloneState(g)
+  n.toasts = n.toasts.filter((t) => t.id !== id)
+  return n
 }
 
-function pushLog(state: GameState, msg: string): GameState {
-  return { ...state, log: [...state.log.slice(-40), msg] }
+export function selectHand(g: GameState, index: number | null): GameState {
+  const n = cloneState(g)
+  n.selectedHand = index
+  n.selectedAttack = null
+  if (index !== null && (n.phase === 'setup' || n.phase === 'main')) {
+    n.uiMode = 'placeBasic'
+  }
+  return n
 }
 
-function checkWin(state: GameState): GameState {
-  if (state.player.binderHp <= 0) {
-    return {
-      ...state,
-      phase: 'gameover',
-      winner: 'enemy',
-      winReason: 'Your Binder fell.',
-      uiMode: 'idle',
-      attackSourceUid: null,
-    }
-  }
-  if (state.enemy.binderHp <= 0) {
-    return {
-      ...state,
-      phase: 'gameover',
-      winner: 'player',
-      winReason: 'Rival Binder destroyed!',
-      uiMode: 'idle',
-      attackSourceUid: null,
-    }
-  }
-  if (state.player.stormCharges >= 3) {
-    return {
-      ...state,
-      phase: 'gameover',
-      winner: 'player',
-      winReason: 'Banked 3 Storm Charges!',
-      uiMode: 'idle',
-      attackSourceUid: null,
-    }
-  }
-  if (state.enemy.stormCharges >= 3) {
-    return {
-      ...state,
-      phase: 'gameover',
-      winner: 'enemy',
-      winReason: 'Enemy banked 3 Storm Charges.',
-      uiMode: 'idle',
-      attackSourceUid: null,
-    }
-  }
-  return state
+export function advanceTutorial(g: GameState): GameState {
+  const n = cloneState(g)
+  n.tutorialStep += 1
+  return n
 }
 
-export function runDawn(state: GameState): GameState {
-  if (state.phase === 'gameover') return state
-  const active = sideOf(state, state.active)
-  // Per-side dawn count → crystal max (HS). Never depends on leftover current storm.
-  const dawnKey = state.active === 'player' ? 'playerDawnCount' : 'enemyDawnCount'
-  const dawnCount = state[dawnKey] + 1
-  const stormMax = Math.min(active.stormCap, dawnCount)
-  const storm = stormMax
-  const nextActive: PlayerState = {
-    ...active,
-    stormMax,
-    storm,
-    binderAbilityUsed: false,
-    relics: active.relics.map((r) => ({ ...r, usedThisTurn: false })),
-    beasts: active.beasts.map((b) =>
-      b
-        ? {
-            ...b,
-            tempAtk: 0,
-            attacking: false,
-            attackedThisTurn: false,
-            blockingUid: undefined,
-            huntMarked: false,
-          }
-        : null,
-    ),
+/** Play Basic from hand to Active (setup/main) or empty Bench */
+export function playBasicTo(
+  g: GameState,
+  target: 'active' | number,
+): GameState {
+  const n = cloneState(g)
+  if (n.active !== 'player') return g
+  if (n.selectedHand === null) return g
+  const cardId = n.player.hand[n.selectedHand]
+  if (!cardId) return g
+  const def = cardById(cardId)
+  if (def.stage !== 'basic') {
+    toast(n, 'Only Basics can be played to Active/Bench', 'info')
+    return n
   }
-  let next: GameState = {
-    ...state,
-    howlBuffActive: false,
-    phase: 'dawn',
-    uiMode: 'idle',
-    attackSourceUid: null,
-    selectedHand: null,
-    selectedBeastUid: null,
-    [dawnKey]: dawnCount,
-    [state.active]: nextActive,
-  }
-  const who = state.active === 'player' ? 'Your' : 'Enemy'
-  next = pushLog(next, `${who} Dawn — Storm ${storm}/${stormMax}.`)
-  next = pushFx(next, `${who.toUpperCase()} DAWN`, 'phase')
-  return runDraw(next)
-}
 
-function runDraw(state: GameState): GameState {
-  const active = sideOf(state, state.active)
-  let deck = [...active.deck]
-  let hand = [...active.hand]
-  let discard = [...active.discard]
-  let binderHp = active.binderHp
-  let drewId: number | null = null
-  let milledId: number | null = null
-  if (deck.length === 0) {
-    if (discard.length === 0) {
-      binderHp -= 1
-    } else {
-      deck = shuffle(discard)
-      discard = []
-    }
-  }
-  if (deck.length > 0) {
-    const cardId = deck.shift()!
-    if (hand.length >= HAND_SOFT_CAP) {
-      discard.push(cardId)
-      milledId = cardId
-    } else {
-      hand.push(cardId)
-      drewId = cardId
-    }
-  }
-  const nextActive = { ...active, deck, hand, discard, binderHp }
-  let next: GameState = {
-    ...state,
-    phase: 'main',
-    [state.active]: nextActive,
-  }
-  const who = state.active === 'player' ? 'You' : 'Enemy'
-  if (milledId !== null) {
-    const name = cardById(milledId).name
-    next = pushLog(next, `${who} mill — hand full (${HAND_SOFT_CAP}).`)
-    if (state.active === 'player') {
-      next = pushFx(next, `Hand full — ${name} milled`, 'info')
-    }
-  } else if (drewId !== null) {
-    const name = cardById(drewId).name
-    next = pushLog(next, `${who} draw ${name}.`)
-    if (state.active === 'player') {
-      next = pushFx(next, `Drew ${name}`, 'info')
-    }
+  if (target === 'active') {
+    if (n.player.active) return g
+    n.player.active = makeMon(cardId)
+    n.player.hand = n.player.hand.filter((_, i) => i !== n.selectedHand)
+    pushLog(n, `You set ${def.name} as Active.`)
+    toast(n, `${def.name} → Active`, 'info')
+    enqueueSfx(n, 'place_card')
+    if (n.tutorialStep === 0) n.tutorialStep = 1
   } else {
-    next = pushLog(next, `${who} draw — empty deck.`)
+    const slot = target
+    if (slot < 0 || slot > 2) return g
+    if (n.player.bench[slot]) return g
+    if (!n.player.active && n.phase === 'setup') {
+      // Prefer Active first in setup
+      return g
+    }
+    const bench = [...n.player.bench]
+    bench[slot] = makeMon(cardId)
+    n.player.bench = bench
+    n.player.hand = n.player.hand.filter((_, i) => i !== n.selectedHand)
+    pushLog(n, `You benched ${def.name}.`)
+    toast(n, `${def.name} → Bench`, 'info')
+    enqueueSfx(n, 'place_card')
   }
-  next = pushFx(next, 'MAIN PHASE', 'phase')
-  return checkWin(next)
+  n.selectedHand = null
+  n.uiMode = 'idle'
+  return n
 }
 
-function hasAdjacentBeast(beasts: (BoardBeast | null)[], slot: number): boolean {
-  if (slot > 0 && beasts[slot - 1]) return true
-  if (slot < 2 && beasts[slot + 1]) return true
-  return false
-}
-
-function effectiveCost(
-  state: GameState,
-  side: Side,
-  card: CardDef,
-  slot?: number,
-): number {
-  let cost = card.cost
-  const p = sideOf(state, side)
-  if (
-    p.binderId === 2 &&
-    card.type === 'beast' &&
-    card.faction === 'pack' &&
-    card.keywords.includes('bond') &&
-    slot !== undefined &&
-    hasAdjacentBeast(p.beasts, slot)
-  ) {
-    cost = Math.max(1, cost - 1)
-  }
-  return cost
-}
-
-export function canPlayToSlot(
-  state: GameState,
-  handIndex: number,
-  slot: number,
-): boolean {
-  if (state.phase !== 'main' || state.active !== 'player') return false
-  if (state.uiMode === 'attack') return false
-  const cardId = state.player.hand[handIndex]
-  if (cardId === undefined) return false
-  const card = cardById(cardId)
-  if (card.type === 'beast') {
-    if (state.player.beasts[slot]) return false
-    return state.player.storm >= effectiveCost(state, 'player', card, slot)
-  }
-  if (card.type === 'relic' || card.type === 'storm') {
-    return state.player.storm >= card.cost
-  }
-  return false
-}
-
-function spawnBeast(
-  state: GameState,
-  side: Side,
-  card: CardDef,
-  slot: number,
+/** Evolve matching line onto Active or Bench mon */
+export function evolveOnto(
+  g: GameState,
+  target: 'active' | number,
 ): GameState {
-  const p = sideOf(state, side)
-  const bonded = hasAdjacentBeast(p.beasts, slot)
-  let atk = card.atk ?? 0
-  let def = card.def ?? 0
-  let hp = card.hp ?? 1
-  if (state.bannerBonus || p.relics.some((r) => r.cardId === 19)) {
-    def += 1
-  }
-  if (bonded && p.relics.some((r) => r.cardId === 27)) {
-    def += 1
-  }
-  const beast: BoardBeast = {
-    uid: uid(),
-    cardId: card.id,
-    atk,
-    def,
-    hp,
-    maxHp: hp,
-    keywords: [...card.keywords],
-    ward: card.keywords.includes('ward'),
-    summonSick: !card.keywords.includes('swift'),
-    bonded,
-    huntMarked: false,
-    attacking: false,
-    guarding: card.keywords.includes('guard'),
-    attackedThisTurn: false,
-    tempAtk: 0,
-    apexUsed: false,
-    side,
-    slot,
-  }
-  const beasts = [...p.beasts]
-  beasts[slot] = beast
-  let next: GameState = {
-    ...state,
-    [side]: { ...p, beasts },
-  }
-  next = pushLog(next, `${card.name} enters the arena.`)
-  next = pushFx(next, `${card.name} enters the arena`, 'enter', {
-    targetUid: beast.uid,
-  })
+  const n = cloneState(g)
+  if (n.phase !== 'main' || n.active !== 'player') return g
+  if (n.selectedHand === null) return g
+  const evoId = n.player.hand[n.selectedHand]
+  if (!evoId) return g
+  const evo = cardById(evoId)
+  if (!evo.evoFrom) return g
 
-  if (bonded && card.keywords.includes('bond')) {
-    if (card.id === 9) {
-      const owner = sideOf(next, side)
-      next = {
-        ...next,
-        [side]: { ...owner, binderHp: owner.binderHp + 1 },
+  const applyEvo = (mon: BattleMon): BattleMon | null => {
+    if (mon.cardId !== evo.evoFrom) return null
+    const next: BattleMon = {
+      ...mon,
+      cardId: evoId,
+      maxHp: evo.hp,
+      hp: Math.max(1, evo.hp - mon.damage),
+      damage: mon.damage,
+      wardReady: evo.ability?.trigger === 'ward' ? true : mon.wardReady,
+      justPlayed: false,
+      evoStack: [...mon.evoStack, evoId],
+    }
+    // Keep energy
+    return next
+  }
+
+  let targetMon: BattleMon | null = null
+  if (target === 'active') {
+    if (!n.player.active) return g
+    const next = applyEvo(n.player.active)
+    if (!next) return g
+    n.player.active = next
+    targetMon = next
+  } else {
+    const mon = n.player.bench[target]
+    if (!mon) return g
+    const next = applyEvo(mon)
+    if (!next) return g
+    const bench = [...n.player.bench]
+    bench[target] = next
+    n.player.bench = bench
+    targetMon = next
+  }
+
+  n.player.hand = n.player.hand.filter((_, i) => i !== n.selectedHand)
+  n.selectedHand = null
+  n.uiMode = 'idle'
+  pushLog(n, `Evolved into ${evo.name}!`)
+  toast(n, `Evolve → ${evo.name}`, 'ability')
+  enqueueSfx(n, 'evolve')
+
+  // On-evolve abilities
+  if (evo.ability?.trigger === 'onEvolve' && targetMon) {
+    if (evo.id === 'solar-wyvern') {
+      targetMon.energy += 1
+      if (target === 'active') n.player.active = { ...targetMon }
+      else {
+        const bench = [...n.player.bench]
+        bench[target as number] = { ...targetMon }
+        n.player.bench = bench
       }
-      next = pushLog(next, 'Storm Elk Bond — +1 Binder Life.')
+      toast(n, 'Dawnflare: +1 Energy!', 'ability')
     }
-    if (card.id === 15 || card.id === 32) {
-      next = drawOne(next, side)
-      next = pushLog(next, `${card.name} Bond — draw 1.`)
-    }
-    if (card.id === 31) {
-      const b = sideOf(next, side).beasts[slot]!
-      const beasts2 = [...sideOf(next, side).beasts]
-      beasts2[slot] = { ...b, tempAtk: b.tempAtk + 1 }
-      next = { ...next, [side]: { ...sideOf(next, side), beasts: beasts2 } }
-      next = pushLog(next, 'Gleam Cub Pack Bond — +1 ATK until Dusk.')
-    }
-    if (card.id === 33) {
-      const owner = sideOf(next, side)
-      const beasts2 = owner.beasts.map((bb, i) => {
-        if (!bb) return null
-        if (Math.abs(i - slot) === 1) return { ...bb, ward: true }
-        return bb
-      })
-      next = { ...next, [side]: { ...owner, beasts: beasts2 } }
-      next = pushLog(next, 'Aegis Ram Bond — adjacent allies gain Ward.')
-    }
-    if (card.id === 36) {
-      const owner = sideOf(next, side)
-      const beasts2 = owner.beasts.map((bb) =>
-        bb && cardById(bb.cardId).faction === 'pack'
-          ? { ...bb, def: bb.def + 1 }
-          : bb,
+    if (evo.id === 'howl-tyrant' && n.player.active) {
+      const healed = Math.min(
+        n.player.active.maxHp,
+        n.player.active.hp + 20,
       )
-      next = { ...next, [side]: { ...owner, beasts: beasts2 } }
-      next = pushLog(next, 'Ossuary Bear Bond — Pack beasts +0/+1.')
-    }
-  }
-
-  if (card.keywords.includes('apex') && !beast.apexUsed) {
-    next = resolveApex(next, side, slot)
-  }
-  return next
-}
-
-function drawOne(state: GameState, side: Side): GameState {
-  const p = sideOf(state, side)
-  let deck = [...p.deck]
-  let hand = [...p.hand]
-  let discard = [...p.discard]
-  if (deck.length === 0 && discard.length > 0) {
-    deck = shuffle(discard)
-    discard = []
-  }
-  if (deck.length === 0) {
-    return { ...state, [side]: { ...p, deck, hand, discard } }
-  }
-  const cardId = deck.shift()!
-  if (hand.length >= HAND_SOFT_CAP) {
-    discard.push(cardId)
-    let next: GameState = { ...state, [side]: { ...p, deck, hand, discard } }
-    if (side === 'player') {
-      next = pushFx(next, `Hand full — ${cardById(cardId).name} milled`, 'info')
-    }
-    return next
-  }
-  hand.push(cardId)
-  let next: GameState = { ...state, [side]: { ...p, deck, hand, discard } }
-  if (side === 'player') {
-    next = pushFx(next, `Drew ${cardById(cardId).name}`, 'info')
-  }
-  return next
-}
-
-function resolveApex(state: GameState, side: Side, slot: number): GameState {
-  const p = sideOf(state, side)
-  const beast = p.beasts[slot]
-  if (!beast) return state
-  const card = cardById(beast.cardId)
-  const beasts = [...p.beasts]
-  beasts[slot] = { ...beast, apexUsed: true }
-  let next: GameState = { ...state, [side]: { ...p, beasts } }
-
-  if (card.id === 10) {
-    const foe = sideOf(next, otherSide(side))
-    const targets = foe.beasts
-      .map((b, i) => ({ b, i }))
-      .filter((x) => x.b)
-      .sort((a, c) => c.b!.hp - a.b!.hp)
-    if (targets.length > 0) {
-      next = dealDamage(next, otherSide(side), targets[0].i, 3, 'lightning')
-      next = pushLog(next, 'Solar Wyvern Apex — 3 lightning!')
-      next = pushFx(next, `${card.name} Apex for 3`, 'damage', { amount: 3 })
-    } else {
-      next = damageBinder(next, otherSide(side), 3)
-      next = pushLog(next, 'Solar Wyvern Apex — 3 to Binder!')
-      next = pushFx(next, `${card.name} Apex for 3`, 'damage', { amount: 3 })
-    }
-  } else if (card.id === 18) {
-    next = { ...next, howlBuffActive: true }
-    next = pushLog(next, 'Howl Tyrant Apex — Pack +1 ATK this Hunt!')
-    next = pushFx(next, 'Howl Tyrant Apex!', 'info')
-  } else if (card.id === 30) {
-    const foeSide = otherSide(side)
-    const foe = sideOf(next, foeSide)
-    for (let i = 0; i < 3; i++) {
-      if (foe.beasts[i]) {
-        next = dealDamage(next, foeSide, i, 2, 'lightning')
+      const delta = healed - n.player.active.hp
+      n.player.active = {
+        ...n.player.active,
+        hp: healed,
+        damage: Math.max(0, n.player.active.damage - delta),
       }
+      toast(n, `Pack Howl: heal Active ${delta}!`, 'ability')
     }
-    next = pushLog(next, 'Stormfather Stag Apex — 2 to all enemy beasts!')
-    next = pushFx(next, 'Stormfather Stag Apex!', 'damage', { amount: 2 })
-  } else if (card.id === 40) {
-    const foeSide = otherSide(side)
-    const foe = sideOf(next, foeSide)
-    const beasts2 = foe.beasts.map((b) =>
-      b ? { ...b, huntMarked: true } : null,
-    )
-    next = { ...next, [foeSide]: { ...foe, beasts: beasts2 } }
-    next = pushLog(next, 'Voidhowl Alpha Apex — all enemies Hunt-marked!')
-    next = pushFx(next, 'Voidhowl Alpha Apex!', 'info')
   }
-  return checkWin(next)
+
+  return n
 }
 
-function damageBinder(state: GameState, side: Side, amount: number): GameState {
-  const p = sideOf(state, side)
-  return checkWin({
-    ...state,
-    [side]: { ...p, binderHp: Math.max(0, p.binderHp - amount) },
+export function canEvolveOnto(
+  g: GameState,
+  handIndex: number,
+  target: 'active' | number,
+): boolean {
+  const evoId = g.player.hand[handIndex]
+  if (!evoId) return false
+  const evo = cardById(evoId)
+  if (!evo.evoFrom) return false
+  const mon =
+    target === 'active' ? g.player.active : g.player.bench[target]
+  if (!mon) return false
+  return mon.cardId === evo.evoFrom
+}
+
+export function canPlayBasicTo(
+  g: GameState,
+  handIndex: number,
+  target: 'active' | number,
+): boolean {
+  const id = g.player.hand[handIndex]
+  if (!id) return false
+  if (cardById(id).stage !== 'basic') return false
+  if (target === 'active') return !g.player.active
+  return !g.player.bench[target]
+}
+
+export function startBattle(g: GameState): GameState {
+  const n = cloneState(g)
+  if (n.phase !== 'setup') return g
+  if (!n.player.active) return g
+  if (!n.enemy.active) aiSetup(n)
+  if (!n.enemy.active) {
+    // emergency: put any basic from deck
+    const bi = n.enemy.deck.findIndex((id) => cardById(id).stage === 'basic')
+    if (bi >= 0) {
+      const id = n.enemy.deck[bi]
+      n.enemy.deck = n.enemy.deck.filter((_, i) => i !== bi)
+      n.enemy.active = makeMon(id)
+    }
+  }
+  n.phase = 'main'
+  n.turn = 1
+  n.active = 'player'
+  n.energyAttachedThisTurn = false
+  n.retreatedThisTurn = false
+  n.attackedThisTurn = false
+  n.uiMode = 'idle'
+  n.setupStarted = true
+  // First player: no draw on turn 1 (Pocket style) — user said draw after first turn setup;
+  // interpreting as: after setup, turn 1 starts without extra draw (already have 5).
+  pushLog(n, 'Battle start! Your turn.')
+  toast(n, 'Battle Start!', 'info')
+  if (n.tutorialStep <= 1) n.tutorialStep = 2
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(FIRST_MATCH_KEY, '1')
+  }
+  return n
+}
+
+export function attachEnergy(
+  g: GameState,
+  target: 'active' | number,
+): GameState {
+  const n = cloneState(g)
+  if (n.phase !== 'main' || n.active !== 'player') return g
+  if (n.energyAttachedThisTurn) return g
+
+  const apply = (mon: BattleMon): BattleMon => ({
+    ...mon,
+    energy: mon.energy + 1,
   })
+
+  if (target === 'active') {
+    if (!n.player.active) return g
+    n.player.active = apply(n.player.active)
+    pushLog(n, `Attached Energy to ${cardById(n.player.active.cardId).name}.`)
+  } else {
+    const mon = n.player.bench[target]
+    if (!mon) return g
+    const bench = [...n.player.bench]
+    bench[target] = apply(mon)
+    n.player.bench = bench
+    pushLog(n, `Attached Energy to Bench ${cardById(mon.cardId).name}.`)
+  }
+  n.energyAttachedThisTurn = true
+  n.uiMode = 'idle'
+  toast(n, '+1 ⚡ Energy', 'info')
+  enqueueSfx(n, 'energy_attach')
+  if (n.tutorialStep === 2) n.tutorialStep = 3
+  return n
 }
 
-function dealDamage(
-  state: GameState,
+export function beginAttachMode(g: GameState): GameState {
+  const n = cloneState(g)
+  if (n.phase !== 'main' || n.active !== 'player') return g
+  if (n.energyAttachedThisTurn) return g
+  n.uiMode = 'attachEnergy'
+  n.selectedHand = null
+  return n
+}
+
+export function beginRetreatMode(g: GameState): GameState {
+  const n = cloneState(g)
+  if (n.phase !== 'main' || n.active !== 'player') return g
+  if (n.retreatedThisTurn) return g
+  if (!n.player.active) return g
+  if (!n.player.bench.some(Boolean)) return g
+  n.uiMode = 'retreat'
+  n.selectedHand = null
+  return n
+}
+
+export function retreatToBench(g: GameState, benchIndex: number): GameState {
+  const n = cloneState(g)
+  if (n.uiMode !== 'retreat' && n.phase === 'main') {
+    // allow direct
+  }
+  if (n.phase !== 'main' || n.active !== 'player') return g
+  if (n.retreatedThisTurn) return g
+  if (!n.player.active) return g
+  const incoming = n.player.bench[benchIndex]
+  if (!incoming) return g
+  const bench = [...n.player.bench]
+  bench[benchIndex] = n.player.active
+  n.player.active = incoming
+  n.player.bench = bench
+  n.retreatedThisTurn = true
+  n.uiMode = 'idle'
+  pushLog(
+    n,
+    `Retreated. Active is now ${cardById(incoming.cardId).name}.`,
+  )
+  toast(n, 'Retreat!', 'info')
+  return n
+}
+
+function attackDamage(
+  attacker: BattleMon,
+  attack: AttackDef,
+  defender: BattleMon,
+): number {
+  const atkDef = cardById(attacker.cardId)
+  const defDef = cardById(defender.cardId)
+  let dmg = attack.damage
+  if (attack.surgeBonus && attacker.energy >= 2) {
+    dmg += attack.surgeBonus
+  }
+  // Weakness: opposite faction +20
+  if (atkDef.faction === defDef.weaknessFaction) {
+    dmg += 20
+  }
+  return dmg
+}
+
+function applyDamage(
+  g: GameState,
+  defenderSide: Side,
+  raw: number,
+): { ko: boolean; dealt: number } {
+  const s = sideOf(g, defenderSide)
+  if (!s.active) return { ko: false, dealt: 0 }
+  let dmg = raw
+  if (s.active.wardReady && dmg > 0) {
+    s.active = { ...s.active, wardReady: false }
+    toast(g, 'Ward! Damage → 0', 'ability')
+    pushLog(g, 'Ward negated the hit!')
+    return { ko: false, dealt: 0 }
+  }
+  const hp = Math.max(0, s.active.hp - dmg)
+  const damage = s.active.damage + (s.active.hp - hp)
+  s.active = { ...s.active, hp, damage }
+  setSide(g, defenderSide, s)
+  return { ko: hp <= 0, dealt: dmg }
+}
+
+function discardMon(g: GameState, side: Side, mon: BattleMon) {
+  const s = sideOf(g, side)
+  s.discard = [...s.discard, ...mon.evoStack]
+  setSide(g, side, s)
+}
+
+function scoreKo(g: GameState, scorer: Side, koCard: CardDef) {
+  const s = sideOf(g, scorer)
+  s.points += koCard.koPoints
+  setSide(g, scorer, s)
+  enqueueSfx(g, koCard.koPoints >= 2 ? 'ko_apex' : 'ko_basic')
+  enqueueSfx(g, 'point_ding')
+  toast(
+    g,
+    `KO! +${koCard.koPoints} pt${koCard.koPoints > 1 ? 's' : ''} (${s.points}/3)`,
+    'ko',
+  )
+  pushLog(
+    g,
+    `${scorer === 'player' ? 'You' : 'Enemy'} scored ${koCard.koPoints} — now ${s.points}/3`,
+  )
+  if (s.points >= 3) {
+    g.phase = 'gameover'
+    g.winner = scorer
+    g.winReason = `${scorer === 'player' ? 'You' : 'Enemy'} reached 3 points!`
+    enqueueSfx(g, 'win_sting')
+    toast(g, g.winReason, 'win')
+  }
+}
+
+function beginPromote(g: GameState, side: Side) {
+  const s = sideOf(g, side)
+  const hasBench = s.bench.some(Boolean)
+  if (!hasBench) {
+    // Can't promote → opponent wins
+    const winner: Side = side === 'player' ? 'enemy' : 'player'
+    g.phase = 'gameover'
+    g.winner = winner
+    g.winReason = `${side === 'player' ? 'You have' : 'Enemy has'} no Bench to promote!`
+    enqueueSfx(g, 'win_sting')
+    toast(g, g.winReason, 'win')
+    return
+  }
+  if (g.phase === 'gameover') return
+  g.promoteSide = side
+  g.phase = 'promote'
+  if (side === 'enemy') {
+    // AI auto-promote strongest remaining
+    aiPromote(g)
+  } else {
+    g.uiMode = 'promotePick'
+    toast(g, 'Choose a Bench Pokémon to promote!', 'info')
+  }
+}
+
+function aiPromote(g: GameState) {
+  const s = g.enemy
+  let best = -1
+  let bestScore = -1
+  s.bench.forEach((m, i) => {
+    if (!m) return
+    const score = m.hp + m.energy * 20 + cardById(m.cardId).hp
+    if (score > bestScore) {
+      bestScore = score
+      best = i
+    }
+  })
+  if (best < 0) return
+  promoteFromBench(g, 'enemy', best)
+}
+
+export function promoteFromBench(
+  g: GameState,
   side: Side,
-  slot: number,
-  amount: number,
-  _source: string,
+  benchIndex: number,
 ): GameState {
-  const p = sideOf(state, side)
-  const beast = p.beasts[slot]
-  if (!beast) return state
-  let dmg = amount
-  let ward = beast.ward
-  if (ward && dmg > 0) {
-    ward = false
-    dmg = 0
-    const beasts = [...p.beasts]
-    beasts[slot] = { ...beast, ward }
-    let next: GameState = { ...state, [side]: { ...p, beasts } }
-    next = pushFx(next, 'Ward negated!', 'info', { targetUid: beast.uid })
-    return next
-  }
-  const hp = beast.hp - dmg
-  const beasts = [...p.beasts]
-  if (hp <= 0) {
-    beasts[slot] = null
-    const discard = [...p.discard, beast.cardId]
-    let next: GameState = {
-      ...state,
-      [side]: { ...p, beasts, discard },
+  const n = g.phase === 'promote' && g.promoteSide === side ? g : cloneState(g)
+  // Always clone if not already working on n carefully
+  const state = n === g ? cloneState(g) : n
+  const s = sideOf(state, side)
+  const mon = s.bench[benchIndex]
+  if (!mon) return g
+  const bench = [...s.bench]
+  bench[benchIndex] = null
+  s.bench = bench
+  s.active = { ...mon, wardReady: cardById(mon.cardId).ability?.trigger === 'ward' }
+  setSide(state, side, s)
+  state.promoteSide = null
+  state.uiMode = 'idle'
+  if (state.winner) {
+    // already over
+  } else if (state.phase === 'promote') {
+    // Resume: if it was mid-turn after attack, end the attacker's turn
+    state.phase = 'main'
+    // After KO resolve, turn ends for the attacker
+    const attacker: Side = side === 'player' ? 'enemy' : 'player'
+    if (attacker === 'player') {
+      // Player just KO'd — end their turn after promote
+      return endTurnInternal(state)
     }
-    next = pushFx(next, `${cardById(beast.cardId).name} falls!`, 'kill', {
-      targetUid: beast.uid,
-      amount: dmg,
-    })
-    return next
+    // Enemy just KO'd player's active — continue enemy? Usually attack ends turn.
+    // Enemy already attacked; finish enemy turn
+    return endTurnInternal(state)
   }
-  beasts[slot] = { ...beast, hp, ward }
-  let next: GameState = { ...state, [side]: { ...p, beasts } }
-  if (dmg > 0) {
-    next = pushFx(next, `${cardById(beast.cardId).name} takes ${dmg}`, 'damage', {
-      targetUid: beast.uid,
-      amount: dmg,
-    })
-  }
-  return next
-}
-
-export function playCard(
-  state: GameState,
-  handIndex: number,
-  slot: number,
-): GameState {
-  if (!canPlayToSlot(state, handIndex, slot) && state.active === 'player') {
-    const cardId = state.player.hand[handIndex]
-    if (cardId === undefined) return state
-    const card = cardById(cardId)
-    if (card.type === 'beast') return state
-  }
-  return playCardForSide(state, 'player', handIndex, slot)
-}
-
-function playCardForSide(
-  state: GameState,
-  side: Side,
-  handIndex: number,
-  slot: number,
-): GameState {
-  if (state.phase !== 'main' || state.active !== side) return state
-  const p = sideOf(state, side)
-  const cardId = p.hand[handIndex]
-  if (cardId === undefined) return state
-  const card = cardById(cardId)
-  const cost =
-    card.type === 'beast'
-      ? effectiveCost(state, side, card, slot)
-      : card.cost
-  if (p.storm < cost) return state
-
-  const hand = [...p.hand]
-  hand.splice(handIndex, 1)
-  let next: GameState = {
-    ...state,
-    [side]: { ...p, hand, storm: p.storm - cost },
-    selectedHand: null,
-    uiMode: 'idle',
-  }
-
-  if (card.type === 'beast') {
-    if (sideOf(next, side).beasts[slot]) return state
-    next = spawnBeast(next, side, card, slot)
-  } else if (card.type === 'relic') {
-    const owner = sideOf(next, side)
-    const relic: BoardRelic = {
-      uid: uid(),
-      cardId: card.id,
-      side,
-      usedThisTurn: false,
-    }
-    next = {
-      ...next,
-      [side]: { ...owner, relics: [...owner.relics, relic] },
-      bannerBonus: card.id === 19 ? true : next.bannerBonus,
-    }
-    next = pushLog(next, `${card.name} relic set.`)
-    next = pushFx(next, `${card.name} set`, 'info')
-  } else if (card.type === 'storm') {
-    next = resolveStorm(next, side, card)
-  }
-  return checkWin(next)
-}
-
-function resolveStorm(state: GameState, side: Side, card: CardDef): GameState {
-  let next = pushLog(state, `${card.name} crackles!`)
-  next = pushFx(next, `${card.name}!`, 'damage')
-  const foe = otherSide(side)
-  if (card.id === 29) {
-    const enemy = sideOf(next, foe)
-    const slots = enemy.beasts
-      .map((b, i) => (b ? i : -1))
-      .filter((i) => i >= 0)
-      .slice(0, 2)
-    for (const s of slots) {
-      next = dealDamage(next, foe, s, 1, 'surge')
-    }
-    if (slots.length < 2) {
-      next = damageBinder(next, foe, 2 - slots.length)
-    }
-  } else if (card.id === 38) {
-    const enemy = sideOf(next, foe)
-    const marked = enemy.beasts.findIndex((b) => b?.huntMarked)
-    const target = marked >= 0 ? marked : enemy.beasts.findIndex((b) => b)
-    if (target >= 0) {
-      const wasMarked = !!enemy.beasts[target]?.huntMarked
-      next = dealDamage(next, foe, target, 1, 'surge')
-      if (wasMarked) next = drawOne(next, side)
-    } else {
-      next = damageBinder(next, foe, 1)
-    }
-  } else if (card.id === 39) {
-    const enemy = sideOf(next, foe)
-    const target = enemy.beasts.findIndex((b) => b)
-    if (target >= 0) next = dealDamage(next, foe, target, 2, 'surge')
-    next = damageBinder(next, foe, 1)
-  }
-  return next
-}
-
-export function useBinderAbility(
-  state: GameState,
-  targetSlot: number,
-): GameState {
-  if (state.phase !== 'main' || state.active !== 'player') return state
-  const p = state.player
-  if (p.binderAbilityUsed) return state
-  if (p.binderId === 1) {
-    if (p.storm < 1) return state
-    const b = p.beasts[targetSlot]
-    if (!b || cardById(b.cardId).faction !== 'dawn') return state
-    const beasts = [...p.beasts]
-    beasts[targetSlot] = { ...b, tempAtk: b.tempAtk + 1 }
-    let next: GameState = {
-      ...state,
-      player: {
-        ...p,
-        storm: p.storm - 1,
-        binderAbilityUsed: true,
-        beasts,
-      },
-    }
-    next = pushLog(next, 'Lady Sol blesses a Dawnpack beast (+1 ATK).')
-    next = pushFx(next, 'Blessed +1 ATK', 'info')
-    return next
-  }
+  pushLog(
+    state,
+    `${side === 'player' ? 'You' : 'Enemy'} promoted ${cardById(mon.cardId).name}.`,
+  )
   return state
 }
 
-export function useStormCrown(
-  state: GameState,
-  targetSide: Side,
-  slot: number,
+export function playerPromote(g: GameState, benchIndex: number): GameState {
+  if (g.phase !== 'promote' || g.promoteSide !== 'player') return g
+  return promoteFromBench(g, 'player', benchIndex)
+}
+
+export function attackWith(
+  g: GameState,
+  attackIndex: number,
 ): GameState {
-  if (state.phase !== 'main' || state.active !== 'player') return state
-  const crown = state.player.relics.find(
-    (r) => r.cardId === 20 && !r.usedThisTurn,
-  )
-  if (!crown || state.player.storm < 1) return state
-  const target = sideOf(state, targetSide).beasts[slot]
-  if (!target?.huntMarked) return state
-  let next = dealDamage(
-    {
-      ...state,
-      player: {
-        ...state.player,
-        storm: state.player.storm - 1,
-        relics: state.player.relics.map((r) =>
-          r.uid === crown.uid ? { ...r, usedThisTurn: true } : r,
-        ),
-      },
-    },
-    targetSide,
-    slot,
-    1,
-    'surge',
-  )
-  next = pushLog(next, 'Storm Crown — 1 Surge to Hunt mark!')
-  next = pushFx(next, 'Storm Crown Surge for 1', 'damage', { amount: 1 })
-  return checkWin(next)
+  const n = cloneState(g)
+  if (n.phase !== 'main' || n.active !== 'player') return g
+  if (n.attackedThisTurn) return g
+  if (!n.player.active || !n.enemy.active) return g
+  const atkMon = n.player.active
+  const def = cardById(atkMon.cardId)
+  const attack = def.attacks[attackIndex]
+  if (!attack) return g
+  if (atkMon.energy < attack.energyCost) return g
+  if (atkMon.justPlayed && !def.swift) return g
+
+  const raw = attackDamage(atkMon, attack, n.enemy.active)
+  pushLog(n, `${def.name} used ${attack.name} for ${raw}!`)
+  toast(n, `${attack.name} → ${raw}`, 'damage')
+  enqueueSfx(n, attack.surgeBonus ? 'surge_bolt' : 'attack_hit')
+
+  const { ko, dealt } = applyDamage(n, 'enemy', raw)
+  void dealt
+  n.attackedThisTurn = true
+  n.player.active = { ...n.player.active!, justPlayed: false }
+  if (n.tutorialStep === 3) n.tutorialStep = 4
+
+  if (ko && n.enemy.active) {
+    const koCard = cardById(n.enemy.active.cardId)
+    discardMon(n, 'enemy', n.enemy.active)
+    n.enemy.active = null
+    scoreKo(n, 'player', koCard)
+    if (n.winner) return n
+    beginPromote(n, 'enemy')
+    if (n.winner || n.promoteSide) return n
+  }
+
+  // Attack ends the turn
+  return endTurnInternal(n)
 }
 
-export function useKeepHorn(
-  state: GameState,
-  targetSide: Side,
-  slot: number,
-): GameState {
-  if (state.phase !== 'main' || state.active !== 'player') return state
-  const horn = state.player.relics.find(
-    (r) => r.cardId === 28 && !r.usedThisTurn,
-  )
-  if (!horn) return state
-  const p = sideOf(state, targetSide)
-  const b = p.beasts[slot]
-  if (!b) return state
-  const beasts = [...p.beasts]
-  beasts[slot] = { ...b, huntMarked: true }
-  let next: GameState = {
-    ...state,
-    [targetSide]: { ...p, beasts },
-    player: {
-      ...state.player,
-      relics: state.player.relics.map((r) =>
-        r.uid === horn.uid ? { ...r, usedThisTurn: true } : r,
-      ),
-    },
+function resetTurnFlags(g: GameState, side: Side) {
+  g.energyAttachedThisTurn = false
+  g.retreatedThisTurn = false
+  g.attackedThisTurn = false
+  const s = sideOf(g, side)
+  if (s.active) {
+    s.active = {
+      ...s.active,
+      justPlayed: false,
+      wardReady:
+        cardById(s.active.cardId).ability?.trigger === 'ward'
+          ? true
+          : s.active.wardReady,
+    }
   }
-  next = pushLog(next, 'Keep Horn — Hunt mark set!')
-  return next
-}
-
-export function bankStormCharge(state: GameState): GameState {
-  if (state.phase !== 'main' && state.phase !== 'hunt') return state
-  if (state.active !== 'player') return state
-  if (state.player.storm < 3) return state
-  let next: GameState = {
-    ...state,
-    player: {
-      ...state.player,
-      storm: state.player.storm - 3,
-      stormCharges: state.player.stormCharges + 1,
-    },
-  }
-  next = pushLog(next, `Banked a Storm Charge (${next.player.stormCharges}/3).`)
-  next = pushFx(next, `Apex Charge ${next.player.stormCharges}/3`, 'info')
-  return checkWin(next)
-}
-
-function getAtk(state: GameState, b: BoardBeast): number {
-  let atk = b.atk + b.tempAtk
-  if (state.howlBuffActive && cardById(b.cardId).faction === 'pack') {
-    atk += 1
-  }
-  return atk
-}
-
-export function canBeastAttack(state: GameState, beast: BoardBeast): boolean {
-  if (beast.side !== state.active) return false
-  if (state.phase !== 'main' && state.phase !== 'hunt') return false
-  if (beast.summonSick && !beast.keywords.includes('swift')) return false
-  if (beast.attackedThisTurn) return false
-  return true
-}
-
-/** Guardians / Guard-stance must be hit before face or non-guards. */
-export function hasEnemyGuard(state: GameState, foeSide: Side): boolean {
-  // Only living enemy beasts with Guard keyword or active Guard stance
-  return sideOf(state, foeSide).beasts.some(
-    (b) =>
-      !!b &&
-      b.hp > 0 &&
-      (b.guarding === true ||
-        (Array.isArray(b.keywords) && b.keywords.includes('guard'))),
-  )
-}
-
-export function isValidAttackTarget(
-  state: GameState,
-  attackerUid: string,
-  target: { kind: 'beast'; uid: string } | { kind: 'face' },
-): boolean {
-  const attacker =
-    state.player.beasts.find((b) => b?.uid === attackerUid) ||
-    state.enemy.beasts.find((b) => b?.uid === attackerUid)
-  if (!attacker || !canBeastAttack(state, attacker)) return false
-  const foe = otherSide(attacker.side)
-  const guards = hasEnemyGuard(state, foe)
-
-  if (target.kind === 'face') {
-    return !guards
-  }
-  const foeBeast = sideOf(state, foe).beasts.find((b) => b?.uid === target.uid)
-  if (!foeBeast) return false
-  if (guards) {
-    return foeBeast.guarding || foeBeast.keywords.includes('guard')
-  }
-  return true
-}
-
-export function beginAttack(state: GameState, beastUid: string): GameState {
-  if (state.active !== 'player') return state
-  if (state.phase !== 'main' && state.phase !== 'hunt') return state
-  const beast = state.player.beasts.find((b) => b?.uid === beastUid)
-  if (!beast || !canBeastAttack(state, beast)) return state
-  let next: GameState = {
-    ...state,
-    phase: state.phase === 'main' ? 'hunt' : state.phase,
-    uiMode: 'attack',
-    attackSourceUid: beastUid,
-    selectedBeastUid: beastUid,
-    selectedHand: null,
-  }
-  if (state.phase === 'main') {
-    next = pushFx(next, 'HUNT PHASE', 'phase')
-    next = pushLog(next, 'Hunt — choose a target.')
-  }
-  return next
-}
-
-export function cancelAttack(state: GameState): GameState {
-  return {
-    ...state,
-    uiMode: 'idle',
-    attackSourceUid: null,
-  }
-}
-
-export function resolveAttack(
-  state: GameState,
-  target: { kind: 'beast'; uid: string } | { kind: 'face' },
-): GameState {
-  const srcUid = state.attackSourceUid
-  if (!srcUid || state.uiMode !== 'attack') return state
-  if (!isValidAttackTarget(state, srcUid, target)) return state
-
-  const atkSide = state.active
-  const defSide = otherSide(atkSide)
-  const attacker = sideOf(state, atkSide).beasts.find((b) => b?.uid === srcUid)
-  if (!attacker) return state
-
-  let damage = getAtk(state, attacker)
-  if (attacker.keywords.includes('surge') && !attacker.attackedThisTurn) {
-    damage += 1
-  }
-  const name = cardById(attacker.cardId).name
-
-  // Mark attacker as spent
-  const atkBeasts = [...sideOf(state, atkSide).beasts]
-  atkBeasts[attacker.slot] = {
-    ...attacker,
-    attackedThisTurn: true,
-    attacking: false,
-  }
-  let next: GameState = {
-    ...state,
-    [atkSide]: { ...sideOf(state, atkSide), beasts: atkBeasts },
-    uiMode: 'idle',
-    attackSourceUid: null,
-    selectedBeastUid: null,
-  }
-
-  if (target.kind === 'face') {
-    next = damageBinder(next, defSide, damage)
-    next = pushLog(next, `${name} Surges for ${damage}!`)
-    next = pushFx(next, `${name} Surges for ${damage}`, 'damage', {
-      amount: damage,
-    })
-    return checkWin(next)
-  }
-
-  const foe = sideOf(next, defSide)
-  const blockerIdx = foe.beasts.findIndex((b) => b?.uid === target.uid)
-  if (blockerIdx < 0) return next
-  const blocker = foe.beasts[blockerIdx]!
-
-  const blockerName = cardById(blocker.cardId).name
-  next = dealDamage(next, defSide, blockerIdx, damage, 'combat')
-  next = pushLog(next, `${name} strikes ${blockerName} for ${damage}.`)
-
-  // Retaliation if blocker survived (dealDamage flashes / kills)
-  const still = sideOf(next, defSide).beasts[blockerIdx]
-  if (still) {
-    const retal = getAtk(next, still)
-    next = dealDamage(next, atkSide, attacker.slot, retal, 'combat')
-  }
-  return checkWin(next)
-}
-
-export function toggleGuard(state: GameState, slot: number): GameState {
-  if (state.active !== 'player') return state
-  if (state.phase !== 'main' && state.phase !== 'hunt') return state
-  const b = state.player.beasts[slot]
-  if (!b) return state
-  const beasts = [...state.player.beasts]
-  const guarding = !b.guarding
-  beasts[slot] = { ...b, guarding }
-  let next: GameState = {
-    ...state,
-    player: { ...state.player, beasts },
-    uiMode: 'idle',
-    attackSourceUid: null,
-  }
-  const name = cardById(b.cardId).name
-  next = pushLog(
-    next,
-    guarding ? `${name} stands Guard.` : `${name} drops Guard.`,
-  )
-  next = pushFx(
-    next,
-    guarding ? `${name} Guards` : `${name} drops Guard`,
-    'info',
-  )
-  return next
-}
-
-export function triggerApexOrBank(state: GameState, slot: number): GameState {
-  if (state.active !== 'player') return state
-  const b = state.player.beasts[slot]
-  if (!b) return state
-  const card = cardById(b.cardId)
-  if (card.keywords.includes('apex') && !b.apexUsed) {
-    return resolveApex(state, 'player', slot)
-  }
-  return bankStormCharge(state)
-}
-
-function runDusk(state: GameState): GameState {
-  const active = sideOf(state, state.active)
-  const beasts = active.beasts.map((b) =>
-    b
+  s.bench = s.bench.map((m) =>
+    m
       ? {
-          ...b,
-          tempAtk: 0,
-          summonSick: false,
-          attacking: false,
-          attackedThisTurn: false,
-          blockingUid: undefined,
+          ...m,
+          justPlayed: false,
+          wardReady:
+            cardById(m.cardId).ability?.trigger === 'ward' ? true : m.wardReady,
         }
       : null,
   )
-
-  let next: GameState = {
-    ...state,
-    phase: 'dusk',
-    uiMode: 'idle',
-    attackSourceUid: null,
-    selectedHand: null,
-    selectedBeastUid: null,
-    [state.active]: {
-      ...active,
-      storm: 0,
-      beasts,
-    },
-  }
-  next = pushLog(next, 'Dusk — unused Storm empties.')
-  next = pushFx(next, 'DUSK', 'phase')
-
-  const nextActive = otherSide(state.active)
-  const turn = nextActive === 'player' ? state.turn + 1 : state.turn
-  next = {
-    ...next,
-    active: nextActive,
-    turn,
-  }
-  next = checkWin(next)
-  if (next.phase === 'gameover') return next
-  return runDawn(next)
+  setSide(g, side, s)
 }
 
-/** End Turn advances Main→Hunt (if attacks pending) or Hunt→Dusk→enemy. */
-export function endTurn(state: GameState): GameState {
-  if (state.phase === 'gameover' || state.active !== 'player') return state
+function endTurnInternal(g: GameState): GameState {
+  if (g.phase === 'gameover' || g.phase === 'promote') return g
 
-  if (state.uiMode === 'attack') {
-    return cancelAttack(state)
+  if (g.active === 'player') {
+    g.active = 'enemy'
+    g.uiMode = 'idle'
+    g.selectedHand = null
+    pushLog(g, "Enemy's turn…")
+    // Run AI immediately (sync)
+    return runAiTurn(g)
   }
 
-  if (state.phase === 'main') {
-    // Enter Hunt if any ready attackers, else go straight to dusk
-    const ready = state.player.beasts.some(
-      (b) => b && canBeastAttack(state, b),
-    )
-    if (ready) {
-      let next: GameState = {
-        ...state,
-        phase: 'hunt',
-        uiMode: 'idle',
-        selectedHand: null,
-      }
-      next = pushLog(next, 'Hunt — tap your beast, then tap the enemy Binder or a beast.')
-      next = pushFx(next, 'HUNT PHASE', 'phase')
-      return next
+  // Enemy finished → player turn
+  g.turn += 1
+  g.active = 'player'
+  resetTurnFlags(g, 'player')
+  draw(g, 'player', 1)
+  pushLog(g, `Your turn ${g.turn}.`)
+  toast(g, `Turn ${g.turn}`, 'info')
+  g.uiMode = 'idle'
+  return g
+}
+
+export function endTurn(g: GameState): GameState {
+  if (g.phase !== 'main' || g.active !== 'player') return g
+  if (g.attackedThisTurn) {
+    // already ending via attack
+  }
+  const n = cloneState(g)
+  return endTurnInternal(n)
+}
+
+function runAiTurn(g: GameState): GameState {
+  resetTurnFlags(g, 'enemy')
+  draw(g, 'enemy', 1)
+
+  // 1) Play basics to bench
+  for (let guard = 0; guard < 3; guard++) {
+    const empty = g.enemy.bench.findIndex((b) => b === null)
+    if (empty < 0) break
+    const hi = g.enemy.hand.findIndex((id) => cardById(id).stage === 'basic')
+    if (hi < 0) break
+    const id = g.enemy.hand[hi]
+    g.enemy.hand = g.enemy.hand.filter((_, i) => i !== hi)
+    const bench = [...g.enemy.bench]
+    bench[empty] = makeMon(id)
+    g.enemy.bench = bench
+    pushLog(g, `Enemy benched ${cardById(id).name}.`)
+    enqueueSfx(g, 'place_card')
+  }
+
+  // 2) Evolve if possible (prefer Active)
+  const tryEvo = (target: 'active' | number) => {
+    const mon =
+      target === 'active' ? g.enemy.active : g.enemy.bench[target]
+    if (!mon) return false
+    const hi = g.enemy.hand.findIndex((id) => {
+      const c = cardById(id)
+      return c.evoFrom === mon.cardId
+    })
+    if (hi < 0) return false
+    const evoId = g.enemy.hand[hi]
+    const evo = cardById(evoId)
+    g.enemy.hand = g.enemy.hand.filter((_, i) => i !== hi)
+    const next: BattleMon = {
+      ...mon,
+      cardId: evoId,
+      maxHp: evo.hp,
+      hp: Math.max(1, evo.hp - mon.damage),
+      damage: mon.damage,
+      justPlayed: false,
+      wardReady: evo.ability?.trigger === 'ward',
+      evoStack: [...mon.evoStack, evoId],
     }
-    return runDusk(state)
-  }
-
-  if (state.phase === 'hunt') {
-    return runDusk(state)
-  }
-
-  return state
-}
-
-function aiAttackDamage(state: GameState, attacker: BoardBeast): number {
-  let damage = getAtk(state, attacker)
-  if (attacker.keywords.includes('surge') && !attacker.attackedThisTurn) {
-    damage += 1
-  }
-  return damage
-}
-
-/** Prefer killable / efficient trades so the board turns over; otherwise go face. */
-function pickEnemyAttackTarget(
-  state: GameState,
-  attacker: BoardBeast,
-): { kind: 'beast'; uid: string } | { kind: 'face' } {
-  const damage = aiAttackDamage(state, attacker)
-  const foeBeasts = state.player.beasts.filter((b): b is BoardBeast => !!b)
-  const guards = foeBeasts.filter(
-    (b) => b.guarding || b.keywords.includes('guard'),
-  )
-  const pool = guards.length > 0 ? guards : foeBeasts
-  if (pool.length === 0) return { kind: 'face' }
-
-  type Scored = { beast: BoardBeast; score: number }
-  const scored: Scored[] = pool.map((beast) => {
-    const kills = !beast.ward && damage >= beast.hp
-    const retal = getAtk(state, beast)
-    const weDie = retal >= attacker.hp
-    let score = 0
-    if (beast.ward) {
-      score = 5 // break ward
-    } else if (kills && !weDie) {
-      score = 100 + beast.atk - (damage - beast.hp) // clean kill
-    } else if (kills && weDie) {
-      score = 70 + beast.atk // even/trade kill
-    } else if (damage >= retal && damage >= Math.ceil(beast.hp / 2)) {
-      score = 40 + damage - retal // efficient chip
-    } else if (damage >= Math.ceil(beast.hp * 0.6)) {
-      score = 25 + damage // heavy chip toward kill
-    } else {
-      score = 0
-    }
-    return { beast, score }
-  })
-
-  scored.sort((a, b) => b.score - a.score)
-  const best = scored[0]
-
-  // Guardians must be hit even if the trade is poor
-  if (guards.length > 0) {
-    return { kind: 'beast', uid: best.beast.uid }
-  }
-  if (best.score >= 25) {
-    return { kind: 'beast', uid: best.beast.uid }
-  }
-  return { kind: 'face' }
-}
-
-/** AI: always summon when possible, then trade into killable beasts (else face). */
-export function runEnemyTurn(state: GameState): GameState {
-  if (state.active !== 'enemy' || state.phase === 'gameover') return state
-  let next = state
-
-  // Main: prioritize filling empty beast slots every turn
-  let safety = 12
-  while (safety-- > 0 && next.phase === 'main' && next.active === 'enemy') {
-    const p = next.enemy
-    let played = false
-    const emptySlot = p.beasts.findIndex((b) => !b)
-
-    if (emptySlot >= 0) {
-      const beastPlays = p.hand
-        .map((id, i) => ({ id, i, card: cardById(id) }))
-        .filter(
-          ({ card }) =>
-            card.type === 'beast' &&
-            p.storm >= effectiveCost(next, 'enemy', card, emptySlot),
-        )
-        .sort(
-          (a, b) =>
-            effectiveCost(next, 'enemy', b.card, emptySlot) -
-            effectiveCost(next, 'enemy', a.card, emptySlot),
-        )
-
-      if (beastPlays.length > 0) {
-        // Prefer a free empty slot matching cost; try each empty slot
-        let best: { i: number; slot: number } | null = null
-        for (const play of beastPlays) {
-          for (let slot = 0; slot < 3; slot++) {
-            if (p.beasts[slot]) continue
-            if (p.storm >= effectiveCost(next, 'enemy', play.card, slot)) {
-              best = { i: play.i, slot }
-              break
-            }
-          }
-          if (best) break
-        }
-        if (best) {
-          next = playCardForSide(next, 'enemy', best.i, best.slot)
-          played = true
+    if (evo.id === 'solar-wyvern') next.energy += 1
+    if (evo.id === 'howl-tyrant' && g.enemy.active) {
+      const healed = Math.min(g.enemy.active.maxHp, g.enemy.active.hp + 20)
+      const delta = healed - g.enemy.active.hp
+      if (target === 'active') {
+        next.hp = Math.min(evo.hp, next.hp + 20)
+        next.damage = Math.max(0, next.damage - 20)
+      } else {
+        g.enemy.active = {
+          ...g.enemy.active,
+          hp: healed,
+          damage: Math.max(0, g.enemy.active.damage - delta),
         }
       }
     }
+    if (target === 'active') g.enemy.active = next
+    else {
+      const bench = [...g.enemy.bench]
+      bench[target] = next
+      g.enemy.bench = bench
+    }
+    pushLog(g, `Enemy evolved into ${evo.name}!`)
+    toast(g, `Enemy → ${evo.name}`, 'ability')
+    enqueueSfx(g, 'evolve')
+    return true
+  }
+  tryEvo('active')
+  for (let i = 0; i < 3; i++) tryEvo(i)
 
-    if (!played) {
-      const indices = p.hand
-        .map((id, i) => ({ id, i, cost: cardById(id).cost }))
-        .sort((a, b) => a.cost - b.cost)
+  // 3) Attach energy to Active (or bench if no active attacks affordable soon)
+  if (g.enemy.active && !g.energyAttachedThisTurn) {
+    g.enemy.active = {
+      ...g.enemy.active,
+      energy: g.enemy.active.energy + 1,
+    }
+    g.energyAttachedThisTurn = true
+    pushLog(g, 'Enemy attached Energy.')
+  }
 
-      for (const { i, id } of indices) {
-        const card = cardById(id)
-        if (card.type === 'relic' && p.storm >= card.cost) {
-          next = playCardForSide(next, 'enemy', i, 0)
-          played = true
-          break
-        }
-        if (
-          card.type === 'storm' &&
-          p.storm >= card.cost &&
-          (p.beasts.some(Boolean) || next.player.beasts.some(Boolean))
-        ) {
-          next = playCardForSide(next, 'enemy', i, 0)
-          played = true
-          break
-        }
+  // 4) Optional retreat if Active can't attack and bench can
+  // skip for MVP simplicity unless Active has 0 energy and bench has energy
+  if (
+    g.enemy.active &&
+    g.enemy.active.energy === 0 &&
+    !g.retreatedThisTurn
+  ) {
+    const bi = g.enemy.bench.findIndex((m) => m && m.energy >= 1)
+    if (bi >= 0) {
+      const bench = [...g.enemy.bench]
+      const swap = bench[bi]!
+      bench[bi] = g.enemy.active
+      g.enemy.active = swap
+      g.enemy.bench = bench
+      g.retreatedThisTurn = true
+      pushLog(g, 'Enemy retreated.')
+    }
+  }
+
+  // 5) Attack if possible
+  if (g.enemy.active && g.player.active && !g.attackedThisTurn) {
+    const def = cardById(g.enemy.active.cardId)
+    const usable = def.attacks
+      .map((a, i) => ({ a, i }))
+      .filter(({ a }) => g.enemy.active!.energy >= a.energyCost)
+      .filter(() => !g.enemy.active!.justPlayed || def.swift)
+    if (usable.length > 0) {
+      // Pick highest damage
+      usable.sort(
+        (x, y) =>
+          attackDamage(g.enemy.active!, y.a, g.player.active!) -
+          attackDamage(g.enemy.active!, x.a, g.player.active!),
+      )
+      const { a, i } = usable[0]
+      void i
+      const raw = attackDamage(g.enemy.active, a, g.player.active)
+      pushLog(g, `Enemy ${def.name} used ${a.name} for ${raw}!`)
+      toast(g, `Enemy ${a.name} → ${raw}`, 'damage')
+      enqueueSfx(g, a.surgeBonus ? 'surge_bolt' : 'attack_hit')
+      const { ko } = applyDamage(g, 'player', raw)
+      g.attackedThisTurn = true
+      g.enemy.active = { ...g.enemy.active, justPlayed: false }
+      if (ko && g.player.active) {
+        const koCard = cardById(g.player.active.cardId)
+        discardMon(g, 'player', g.player.active)
+        g.player.active = null
+        scoreKo(g, 'enemy', koCard)
+        if (g.winner) return g
+        beginPromote(g, 'player')
+        if (g.winner || g.promoteSide) return g
       }
     }
-    if (!played) break
   }
 
-  if (next.phase === 'gameover') return next
-
-  // Put one beast on Guard if available
-  if (next.active === 'enemy' && next.phase === 'main') {
-    const guardIdx = next.enemy.beasts.findIndex(
-      (b) => b && (b.keywords.includes('guard') || b.def >= 3),
-    )
-    if (guardIdx >= 0 && next.enemy.beasts[guardIdx]) {
-      const beasts = [...next.enemy.beasts]
-      beasts[guardIdx] = { ...beasts[guardIdx]!, guarding: true }
-      next = { ...next, enemy: { ...next.enemy, beasts } }
-    }
-  }
-
-  // Hunt: attack with all eligible — kill/trade first, else face
-  if (next.active === 'enemy' && (next.phase === 'main' || next.phase === 'hunt')) {
-    next = {
-      ...next,
-      phase: 'hunt',
-    }
-    next = pushFx(next, 'ENEMY HUNT', 'phase')
-
-    for (let slot = 0; slot < 3; slot++) {
-      if (next.phase === 'gameover' || next.active !== 'enemy') break
-      const b = next.enemy.beasts[slot]
-      if (!b || !canBeastAttack(next, b)) continue
-
-      next = {
-        ...next,
-        uiMode: 'attack',
-        attackSourceUid: b.uid,
-      }
-
-      const target = pickEnemyAttackTarget(next, b)
-      next = resolveAttack(next, target)
-    }
-  }
-
-  if (next.phase === 'gameover') return next
-  if (next.active === 'enemy') {
-    next = runDusk(next)
-  }
-  return next
+  return endTurnInternal(g)
 }
 
-export function selectBeast(state: GameState, beastUid: string | null): GameState {
-  return {
-    ...state,
-    selectedBeastUid: beastUid,
-    selectedHand: null,
-    uiMode: state.uiMode === 'attack' ? 'idle' : state.uiMode,
-    attackSourceUid: state.uiMode === 'attack' ? null : state.attackSourceUid,
-  }
+export function usableAttacks(mon: BattleMon | null): {
+  attack: AttackDef
+  index: number
+  ready: boolean
+}[] {
+  if (!mon) return []
+  const def = cardById(mon.cardId)
+  return def.attacks.map((attack, index) => ({
+    attack,
+    index,
+    ready:
+      mon.energy >= attack.energyCost &&
+      (!mon.justPlayed || !!def.swift),
+  }))
 }
 
-export function selectHand(state: GameState, index: number | null): GameState {
-  return {
-    ...state,
-    selectedHand: index,
-    selectedBeastUid: null,
-    uiMode: index !== null ? 'play' : 'idle',
-    attackSourceUid: null,
-  }
+export function artUrl(card: CardDef): string {
+  const base = import.meta.env.BASE_URL || '/'
+  return `${base}${card.art}`
 }
 
-export function clearFx(state: GameState, id: number): GameState {
-  return { ...state, fx: state.fx.filter((f) => f.id !== id) }
+export function consumeSfx(g: GameState): { state: GameState; sfx: string[] } {
+  const sfx = [...g.sfxQueue]
+  if (sfx.length === 0) return { state: g, sfx }
+  const n = cloneState(g)
+  n.sfxQueue = []
+  return { state: n, sfx }
 }
 
-export function getCard(id: number): CardDef {
-  return cardById(id)
-}
-
-export function allCards(): CardDef[] {
-  return CARDS
-}
-
-// Back-compat stubs used by older UI (no-ops / thin wrappers)
-export function toggleAttack(state: GameState, slot: number): GameState {
-  const b = state.player.beasts[slot]
-  if (!b) return state
-  return beginAttack(state, b.uid)
-}
-
-export function startHunt(state: GameState): GameState {
-  if (state.phase !== 'main') return state
-  return {
-    ...state,
-    phase: 'hunt',
-  }
-}
-
-export function confirmAttackers(state: GameState): GameState {
-  return endTurn(state)
-}
-
-export function skipHunt(state: GameState): GameState {
-  return runDusk(state)
-}
-
-export function endMainPhase(state: GameState): GameState {
-  return endTurn(state)
+export function isBasicId(id: string): boolean {
+  return cardById(id).stage === 'basic'
 }
