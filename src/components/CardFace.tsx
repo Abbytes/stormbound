@@ -9,6 +9,7 @@ interface Props {
   atk?: number
   def?: number
   hp?: number
+  maxHp?: number
   targetable?: boolean
   onClick?: () => void
   className?: string
@@ -76,6 +77,7 @@ export function CardFace({
   atk,
   def,
   hp,
+  maxHp,
   targetable,
   onClick,
   className = '',
@@ -84,6 +86,8 @@ export function CardFace({
   const a = atk ?? card.atk ?? 0
   const d = def ?? card.def ?? 0
   const h = hp ?? card.hp ?? 0
+  const mh = maxHp ?? card.hp ?? h
+  const hurt = h < mh
   const tiny = size === 'board' || compact
   const artSrc = card.art
     ? card.art.startsWith('http') || card.art.startsWith('/')
@@ -104,7 +108,7 @@ export function CardFace({
         targetable
           ? 'ring-2 ring-rose-400 scale-[1.03] shadow-[0_0_18px_rgba(244,63,94,0.55)]'
           : '',
-        dimmed ? 'opacity-45 grayscale-[30%]' : '',
+        dimmed ? 'opacity-35 grayscale-[55%] brightness-75' : '',
         className,
       ].join(' ')}
     >
@@ -236,11 +240,19 @@ export function CardFace({
               <span className={tiny ? 'text-[0.55rem]' : 'text-[0.7rem]'}>❤️</span>
               <span
                 className={[
-                  'font-black text-emerald-300',
+                  'font-black tabular-nums',
+                  hurt ? 'text-rose-300' : 'text-emerald-300',
                   tiny ? 'text-[0.55rem]' : 'text-[0.7rem]',
                 ].join(' ')}
               >
-                {h}
+                {tiny && maxHp !== undefined ? (
+                  <>
+                    {h}
+                    <span className="opacity-55 text-[0.85em]">/{mh}</span>
+                  </>
+                ) : (
+                  h
+                )}
               </span>
             </div>
           </>

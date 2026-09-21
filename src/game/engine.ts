@@ -8,6 +8,7 @@ import type { CardDef, Faction, Keyword } from '../types/cards'
 
 export const BOARD_SLOTS = 3
 export const BINDER_MAX_HP = 20
+export const HAND_SOFT_CAP = 7
 
 export type Side = 'player' | 'enemy'
 export type Phase = 'dawn' | 'main' | 'hunt' | 'dusk' | 'gameover'
@@ -295,6 +296,8 @@ function runDraw(state: GameState): GameState {
   let hand = [...active.hand]
   let discard = [...active.discard]
   let binderHp = active.binderHp
+  let drewId: number | null = null
+  let milledId: number | null = null
   if (deck.length === 0) {
     if (discard.length === 0) {
       binderHp -= 1
@@ -304,7 +307,14 @@ function runDraw(state: GameState): GameState {
     }
   }
   if (deck.length > 0) {
-    hand.push(deck.shift()!)
+    const cardId = deck.shift()!
+    if (hand.length >= HAND_SOFT_CAP) {
+      discard.push(cardId)
+      milledId = cardId
+    } else {
+      hand.push(cardId)
+      drewId = cardId
+    }
   }
   const nextActive = { ...active, deck, hand, discard, binderHp }
   let next: GameState = {
@@ -312,7 +322,22 @@ function runDraw(state: GameState): GameState {
     phase: 'main',
     [state.active]: nextActive,
   }
-  next = pushLog(next, `${state.active === 'player' ? 'You' : 'Enemy'} draw.`)
+  const who = state.active === 'player' ? 'You' : 'Enemy'
+  if (milledId !== null) {
+    const name = cardById(milledId).name
+    next = pushLog(next, `${who} mill — hand full (${HAND_SOFT_CAP}).`)
+    if (state.active === 'player') {
+      next = pushFx(next, `Hand full — ${name} milled`, 'info')
+    }
+  } else if (drewId !== null) {
+    const name = cardById(drewId).name
+    next = pushLog(next, `${who} draw ${name}.`)
+    if (state.active === 'player') {
+      next = pushFx(next, `Drew ${name}`, 'info')
+    }
+  } else {
+    next = pushLog(next, `${who} draw — empty deck.`)
+  }
   next = pushFx(next, 'MAIN PHASE', 'phase')
   return checkWin(next)
 }
@@ -469,10 +494,24 @@ function drawOne(state: GameState, side: Side): GameState {
     deck = shuffle(discard)
     discard = []
   }
-  if (deck.length > 0) {
-    hand.push(deck.shift()!)
+  if (deck.length === 0) {
+    return { ...state, [side]: { ...p, deck, hand, discard } }
   }
-  return { ...state, [side]: { ...p, deck, hand, discard } }
+  const cardId = deck.shift()!
+  if (hand.length >= HAND_SOFT_CAP) {
+    discard.push(cardId)
+    let next: GameState = { ...state, [side]: { ...p, deck, hand, discard } }
+    if (side === 'player') {
+      next = pushFx(next, `Hand full — ${cardById(cardId).name} milled`, 'info')
+    }
+    return next
+  }
+  hand.push(cardId)
+  let next: GameState = { ...state, [side]: { ...p, deck, hand, discard } }
+  if (side === 'player') {
+    next = pushFx(next, `Drew ${cardById(cardId).name}`, 'info')
+  }
+  return next
 }
 
 function resolveApex(state: GameState, side: Side, slot: number): GameState {
@@ -571,7 +610,14 @@ function dealDamage(
     return next
   }
   beasts[slot] = { ...beast, hp, ward }
-  return { ...state, [side]: { ...p, beasts } }
+  let next: GameState = { ...state, [side]: { ...p, beasts } }
+  if (dmg > 0) {
+    next = pushFx(next, `${cardById(beast.cardId).name} takes ${dmg}`, 'damage', {
+      targetUid: beast.uid,
+      amount: dmg,
+    })
+  }
+  return next
 }
 
 export function playCard(
@@ -904,27 +950,15 @@ export function resolveAttack(
   if (blockerIdx < 0) return next
   const blocker = foe.beasts[blockerIdx]!
 
+  const blockerName = cardById(blocker.cardId).name
   next = dealDamage(next, defSide, blockerIdx, damage, 'combat')
-  next = pushLog(
-    next,
-    `${name} strikes ${cardById(blocker.cardId).name} for ${damage}.`,
-  )
-  next = pushFx(next, `${name} Surges for ${damage}`, 'damage', {
-    amount: damage,
-    targetUid: blocker.uid,
-  })
+  next = pushLog(next, `${name} strikes ${blockerName} for ${damage}.`)
 
-  // Retaliation if blocker survived
+  // Retaliation if blocker survived (dealDamage flashes / kills)
   const still = sideOf(next, defSide).beasts[blockerIdx]
   if (still) {
     const retal = getAtk(next, still)
     next = dealDamage(next, atkSide, attacker.slot, retal, 'combat')
-    if (retal > 0) {
-      next = pushFx(next, `${cardById(still.cardId).name} hits back for ${retal}`, 'damage', {
-        amount: retal,
-        targetUid: attacker.uid,
-      })
-    }
   }
   return checkWin(next)
 }
@@ -1044,37 +1078,129 @@ export function endTurn(state: GameState): GameState {
   return state
 }
 
-/** Simple AI: play beasts onto board, then attack valid targets. */
+function aiAttackDamage(state: GameState, attacker: BoardBeast): number {
+  let damage = getAtk(state, attacker)
+  if (attacker.keywords.includes('surge') && !attacker.attackedThisTurn) {
+    damage += 1
+  }
+  return damage
+}
+
+/** Prefer killable / efficient trades so the board turns over; otherwise go face. */
+function pickEnemyAttackTarget(
+  state: GameState,
+  attacker: BoardBeast,
+): { kind: 'beast'; uid: string } | { kind: 'face' } {
+  const damage = aiAttackDamage(state, attacker)
+  const foeBeasts = state.player.beasts.filter((b): b is BoardBeast => !!b)
+  const guards = foeBeasts.filter(
+    (b) => b.guarding || b.keywords.includes('guard'),
+  )
+  const pool = guards.length > 0 ? guards : foeBeasts
+  if (pool.length === 0) return { kind: 'face' }
+
+  type Scored = { beast: BoardBeast; score: number }
+  const scored: Scored[] = pool.map((beast) => {
+    const kills = !beast.ward && damage >= beast.hp
+    const retal = getAtk(state, beast)
+    const weDie = retal >= attacker.hp
+    let score = 0
+    if (beast.ward) {
+      score = 5 // break ward
+    } else if (kills && !weDie) {
+      score = 100 + beast.atk - (damage - beast.hp) // clean kill
+    } else if (kills && weDie) {
+      score = 70 + beast.atk // even/trade kill
+    } else if (damage >= retal && damage >= Math.ceil(beast.hp / 2)) {
+      score = 40 + damage - retal // efficient chip
+    } else if (damage >= Math.ceil(beast.hp * 0.6)) {
+      score = 25 + damage // heavy chip toward kill
+    } else {
+      score = 0
+    }
+    return { beast, score }
+  })
+
+  scored.sort((a, b) => b.score - a.score)
+  const best = scored[0]
+
+  // Guardians must be hit even if the trade is poor
+  if (guards.length > 0) {
+    return { kind: 'beast', uid: best.beast.uid }
+  }
+  if (best.score >= 25) {
+    return { kind: 'beast', uid: best.beast.uid }
+  }
+  return { kind: 'face' }
+}
+
+/** AI: always summon when possible, then trade into killable beasts (else face). */
 export function runEnemyTurn(state: GameState): GameState {
   if (state.active !== 'enemy' || state.phase === 'gameover') return state
   let next = state
 
-  // Main: play cards greedily onto empty slots
+  // Main: prioritize filling empty beast slots every turn
   let safety = 12
   while (safety-- > 0 && next.phase === 'main' && next.active === 'enemy') {
     const p = next.enemy
     let played = false
-    const indices = p.hand
-      .map((id, i) => ({ id, i, cost: cardById(id).cost }))
-      .sort((a, b) => a.cost - b.cost)
+    const emptySlot = p.beasts.findIndex((b) => !b)
 
-    for (const { i, id } of indices) {
-      const card = cardById(id)
-      if (card.type === 'beast') {
-        const slot = p.beasts.findIndex((b) => !b)
-        if (slot >= 0 && p.storm >= effectiveCost(next, 'enemy', card, slot)) {
-          next = playCardForSide(next, 'enemy', i, slot)
+    if (emptySlot >= 0) {
+      const beastPlays = p.hand
+        .map((id, i) => ({ id, i, card: cardById(id) }))
+        .filter(
+          ({ card }) =>
+            card.type === 'beast' &&
+            p.storm >= effectiveCost(next, 'enemy', card, emptySlot),
+        )
+        .sort(
+          (a, b) =>
+            effectiveCost(next, 'enemy', b.card, emptySlot) -
+            effectiveCost(next, 'enemy', a.card, emptySlot),
+        )
+
+      if (beastPlays.length > 0) {
+        // Prefer a free empty slot matching cost; try each empty slot
+        let best: { i: number; slot: number } | null = null
+        for (const play of beastPlays) {
+          for (let slot = 0; slot < 3; slot++) {
+            if (p.beasts[slot]) continue
+            if (p.storm >= effectiveCost(next, 'enemy', play.card, slot)) {
+              best = { i: play.i, slot }
+              break
+            }
+          }
+          if (best) break
+        }
+        if (best) {
+          next = playCardForSide(next, 'enemy', best.i, best.slot)
+          played = true
+        }
+      }
+    }
+
+    if (!played) {
+      const indices = p.hand
+        .map((id, i) => ({ id, i, cost: cardById(id).cost }))
+        .sort((a, b) => a.cost - b.cost)
+
+      for (const { i, id } of indices) {
+        const card = cardById(id)
+        if (card.type === 'relic' && p.storm >= card.cost) {
+          next = playCardForSide(next, 'enemy', i, 0)
           played = true
           break
         }
-      } else if (card.type === 'relic' && p.storm >= card.cost) {
-        next = playCardForSide(next, 'enemy', i, 0)
-        played = true
-        break
-      } else if (card.type === 'storm' && p.storm >= card.cost && p.beasts.some(Boolean)) {
-        next = playCardForSide(next, 'enemy', i, 0)
-        played = true
-        break
+        if (
+          card.type === 'storm' &&
+          p.storm >= card.cost &&
+          (p.beasts.some(Boolean) || next.player.beasts.some(Boolean))
+        ) {
+          next = playCardForSide(next, 'enemy', i, 0)
+          played = true
+          break
+        }
       }
     }
     if (!played) break
@@ -1094,7 +1220,7 @@ export function runEnemyTurn(state: GameState): GameState {
     }
   }
 
-  // Hunt: attack with all eligible
+  // Hunt: attack with all eligible — kill/trade first, else face
   if (next.active === 'enemy' && (next.phase === 'main' || next.phase === 'hunt')) {
     next = {
       ...next,
@@ -1113,21 +1239,7 @@ export function runEnemyTurn(state: GameState): GameState {
         attackSourceUid: b.uid,
       }
 
-      // Prefer killing / hitting player guards, else any beast, else face
-      const playerGuards = next.player.beasts
-        .map((pb, i) => ({ pb, i }))
-        .filter(
-          ({ pb }) =>
-            pb && (pb.guarding || pb.keywords.includes('guard')),
-        )
-      let target: { kind: 'beast'; uid: string } | { kind: 'face' }
-      if (playerGuards.length > 0) {
-        target = { kind: 'beast', uid: playerGuards[0].pb!.uid }
-      } else {
-        const any = next.player.beasts.find((pb) => pb)
-        if (any) target = { kind: 'beast', uid: any.uid }
-        else target = { kind: 'face' }
-      }
+      const target = pickEnemyAttackTarget(next, b)
       next = resolveAttack(next, target)
     }
   }

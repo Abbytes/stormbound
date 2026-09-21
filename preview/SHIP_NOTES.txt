@@ -1,0 +1,11 @@
+Stormbound hand↔board loop SHIPPED
+Live: https://abbytes.github.io/stormbound/
+
+Changes:
+1. Draw toast "Drew {CardName}" + MAIN PHASE after Dawn; soft-cap hand at 7 (mill toast)
+2. Tap hand → empty legal slots glow SUMMON HERE; hint "Tap an Open Slot to play {name} ({cost}⚡)"
+3. Unaffordable hand cards dimmed harder
+4. Board HP pip heart current/max; red tint + floating dmg on hit; falls! toast clears slot
+5. AI always tries to summon into empty slots; prefers kill/efficient trades, else face
+
+Previews: hand_select_summon_glow.png, damaged_beast.png, kill_clear.png

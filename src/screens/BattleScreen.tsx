@@ -73,6 +73,20 @@ export function BattleScreen({ faction, onQuit }: Props) {
   const prevLogLen = useRef(0)
   const seenFx = useRef(new Set<number>())
 
+  // Preview / QA hook — read/write battle state from Playwright
+  useEffect(() => {
+    const w = window as unknown as {
+      __sbGet?: () => GameState
+      __sbSet?: (s: GameState) => void
+    }
+    w.__sbGet = () => state
+    w.__sbSet = (s: GameState) => setState(s)
+    return () => {
+      delete w.__sbGet
+      delete w.__sbSet
+    }
+  }, [state])
+
   // FX → toast + damage numbers
   useEffect(() => {
     const timers: number[] = []
@@ -165,6 +179,13 @@ export function BattleScreen({ faction, onQuit }: Props) {
     selectedCard?.type === 'beast' &&
     state.selectedHand !== null &&
     state.uiMode !== 'attack'
+
+  const hasLegalSummonSlot =
+    waitingPlay &&
+    state.selectedHand !== null &&
+    state.player.beasts.some(
+      (b, i) => !b && canPlayToSlot(state, state.selectedHand!, i),
+    )
 
   const attacking = state.uiMode === 'attack' && !!state.attackSourceUid
   const faceLegal =
@@ -503,11 +524,15 @@ export function BattleScreen({ faction, onQuit }: Props) {
                 ? hasEnemyGuard(state, 'enemy')
                   ? 'Strike a Guardian first.'
                   : 'Tap an enemy beast or their Binder.'
-                : state.active !== 'player'
-                  ? busy
-                    ? 'Enemy is hunting…'
-                    : 'Enemy turn…'
-                  : hint}
+                : waitingPlay && selectedCard
+                  ? hasLegalSummonSlot
+                    ? `Tap an Open Slot to play ${selectedCard.name} (${selectedCard.cost}⚡)`
+                    : `Need more ⚡ (or a free slot) for ${selectedCard.name}`
+                  : state.active !== 'player'
+                    ? busy
+                      ? 'Enemy is hunting…'
+                      : 'Enemy turn…'
+                    : hint}
           </p>
           {state.phase !== 'gameover' && state.active === 'player' && (
             <button
@@ -648,7 +673,11 @@ export function BattleScreen({ faction, onQuit }: Props) {
                   size="hand"
                   selected={state.selectedHand === i}
                   dimmed={
-                    (!affordable && state.phase === 'main') || attacking
+                    (state.phase === 'main' &&
+                      state.active === 'player' &&
+                      !affordable) ||
+                    attacking ||
+                    state.active !== 'player'
                   }
                   onClick={() => {
                     if (attacking) {
@@ -663,11 +692,20 @@ export function BattleScreen({ faction, onQuit }: Props) {
                       openInspect(card, setInspect)
                     } else {
                       setState((s) => selectHand(s, i))
-                      setHint(
-                        card.type === 'beast'
-                          ? `Tap an Open Slot to summon ${card.name}.`
-                          : `Play ${card.name} from the action bar.`,
-                      )
+                      if (card.type === 'beast') {
+                        const canAfford = state.player.storm >= card.cost
+                        setHint(
+                          canAfford
+                            ? `Tap an Open Slot to play ${card.name} (${card.cost}⚡)`
+                            : `Need ${card.cost}⚡ to play ${card.name} (have ${state.player.storm})`,
+                        )
+                      } else {
+                        setHint(
+                          state.player.storm >= card.cost
+                            ? `Play ${card.name} (${card.cost}⚡) from the action bar.`
+                            : `Need ${card.cost}⚡ for ${card.name}`,
+                        )
+                      }
                     }
                   }}
                 />
