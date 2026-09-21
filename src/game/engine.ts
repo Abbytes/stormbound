@@ -1018,7 +1018,7 @@ export function endTurn(state: GameState): GameState {
         uiMode: 'idle',
         selectedHand: null,
       }
-      next = pushLog(next, 'Hunt — tap a beast, then Attack a target.')
+      next = pushLog(next, 'Hunt — tap your beast, then tap the enemy Binder or a beast.')
       next = pushFx(next, 'HUNT PHASE', 'phase')
       return next
     }

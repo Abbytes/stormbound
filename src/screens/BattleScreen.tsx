@@ -193,14 +193,43 @@ export function BattleScreen({ faction, onQuit }: Props) {
     if (!beast) return
 
     if (attacking) {
+      // Tap same attacker to cancel; otherwise switch attacker
+      if (state.attackSourceUid === beast.uid) {
+        setState((s) => cancelAttack(s))
+        setHint('Attack cancelled.')
+        return
+      }
+      if (canBeastAttack(state, beast)) {
+        playSfx('surge_bolt', 0.45)
+        setState((s) => beginAttack(s, beast.uid))
+        setHint(
+          hasEnemyGuard(state, 'enemy')
+            ? 'Tap a Guardian first.'
+            : 'Tap the enemy Binder (HP bar) or a beast.',
+        )
+        return
+      }
       setState((s) => cancelAttack(s))
       return
     }
 
     if (state.active === 'player' && (state.phase === 'main' || state.phase === 'hunt')) {
+      // Hunt: one tap starts Attack targeting (HS-style). Main: select + show actions.
+      if (state.phase === 'hunt' && canBeastAttack(state, beast)) {
+        playSfx('surge_bolt', 0.45)
+        setState((s) => beginAttack(s, beast.uid))
+        setHint(
+          hasEnemyGuard(state, 'enemy')
+            ? 'Tap a Guardian first.'
+            : 'Tap the glowing enemy Binder to deal face damage.',
+        )
+        return
+      }
       setState((s) => selectBeast(s, beast.uid))
       setHint(
-        `${cardById(beast.cardId).name}: Attack, Guard, or Apex.`,
+        canBeastAttack(state, beast)
+          ? `${cardById(beast.cardId).name}: tap Attack, or Guard / Apex.`
+          : `${cardById(beast.cardId).name}: can't Attack yet.`,
       )
       return
     }
@@ -209,6 +238,12 @@ export function BattleScreen({ faction, onQuit }: Props) {
 
   const onSlotEnemy = (slot: number) => {
     const beast = state.enemy.beasts[slot]
+
+    // Empty board / empty slot: strike Binder face when legal
+    if (attacking && !beast) {
+      onFaceEnemy()
+      return
+    }
 
     if (attacking && beast) {
       if (
@@ -383,7 +418,7 @@ export function BattleScreen({ faction, onQuit }: Props) {
             className={[
               'flex-1 min-w-0 text-left rounded-xl p-1 -m-1 transition',
               faceLegal
-                ? 'ring-2 ring-rose-400 bg-rose-500/15 animate-pulse'
+                ? 'ring-4 ring-rose-400 bg-rose-500/25 shadow-[0_0_24px_rgba(251,113,133,0.55)] animate-pulse scale-[1.02]'
                 : '',
             ].join(' ')}
           >
@@ -418,8 +453,8 @@ export function BattleScreen({ faction, onQuit }: Props) {
                   gradient="bg-gradient-to-r from-violet-600 via-fuchsia-500 to-pink-400"
                 />
                 {faceLegal && (
-                  <div className="text-[0.55rem] text-rose-300 font-bold mt-0.5">
-                    TAP TO STRIKE BINDER
+                  <div className="text-[0.7rem] text-rose-200 font-black mt-1 tracking-wide">
+                    ⚡ TAP HERE — STRIKE BINDER
                   </div>
                 )}
               </div>
