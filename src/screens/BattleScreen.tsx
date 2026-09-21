@@ -188,9 +188,12 @@ export function BattleScreen({ faction, onQuit }: Props) {
     )
 
   const attacking = state.uiMode === 'attack' && !!state.attackSourceUid
+  const enemyHasGuard = hasEnemyGuard(state, 'enemy')
   const faceLegal =
     attacking &&
-    isValidAttackTarget(state, state.attackSourceUid!, { kind: 'face' })
+    !!state.attackSourceUid &&
+    !enemyHasGuard &&
+    isValidAttackTarget(state, state.attackSourceUid, { kind: 'face' })
 
   const onSlotPlayer = (slot: number) => {
     if (waitingPlay && state.selectedHand !== null) {
@@ -225,8 +228,8 @@ export function BattleScreen({ faction, onQuit }: Props) {
         setState((s) => beginAttack(s, beast.uid))
         setHint(
           hasEnemyGuard(state, 'enemy')
-            ? 'Tap a Guardian first.'
-            : 'Tap the enemy Binder (HP bar) or a beast.',
+            ? 'Tap a Guardian (Guard) beast first.'
+            : 'No Guardians — tap the glowing Binder HP to go face.',
         )
         return
       }
@@ -241,8 +244,8 @@ export function BattleScreen({ faction, onQuit }: Props) {
         setState((s) => beginAttack(s, beast.uid))
         setHint(
           hasEnemyGuard(state, 'enemy')
-            ? 'Tap a Guardian first.'
-            : 'Tap the glowing enemy Binder to deal face damage.',
+            ? 'Tap a Guardian (Guard) beast first.'
+            : 'No Guardians — tap the glowing Binder HP to go face.',
         )
         return
       }
@@ -344,8 +347,8 @@ export function BattleScreen({ faction, onQuit }: Props) {
     setState((s) => beginAttack(s, selectedBeast.uid))
     setHint(
       hasEnemyGuard(state, 'enemy')
-        ? 'Tap a Guardian, or cancel.'
-        : 'Tap an enemy beast — or the Binder if the board is clear.',
+        ? 'Tap a Guardian (Guard) beast, or cancel.'
+        : 'Board clear — tap the glowing Binder HP to go face.',
     )
   }
 
@@ -522,8 +525,10 @@ export function BattleScreen({ faction, onQuit }: Props) {
               ? state.winReason
               : attacking
                 ? hasEnemyGuard(state, 'enemy')
-                  ? 'Strike a Guardian first.'
-                  : 'Tap an enemy beast or their Binder.'
+                  ? 'Strike a Guard beast first.'
+                  : state.enemy.beasts.every((b) => !b)
+                    ? 'Board clear — TAP ENEMY HP / BINDER'
+                    : 'Tap an enemy beast or their Binder HP.'
                 : waitingPlay && selectedCard
                   ? hasLegalSummonSlot
                     ? `Tap an Open Slot to play ${selectedCard.name} (${selectedCard.cost}⚡)`

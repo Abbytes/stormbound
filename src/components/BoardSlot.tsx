@@ -46,7 +46,7 @@ export function BoardSlot({
               : '',
             beast.guarding ? 'ring-2 ring-sky-400/80' : '',
             beast.ward ? 'brightness-110' : '',
-            beast.attackedThisTurn ? 'opacity-80' : '',
+            beast.attackedThisTurn ? 'opacity-55 grayscale' : '',
             flashing
               ? 'ring-2 ring-rose-500 brightness-125 saturate-150'
               : hurt
@@ -76,6 +76,11 @@ export function BoardSlot({
           {beast.summonSick && side === 'player' && (
             <span className="text-[0.4rem] px-1 rounded bg-stone-600/80 text-white">
               💤
+            </span>
+          )}
+          {beast.attackedThisTurn && (
+            <span className="text-[0.4rem] px-1 rounded bg-stone-800/90 text-stone-300 font-bold">
+              Exhausted
             </span>
           )}
         </div>

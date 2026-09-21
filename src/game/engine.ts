@@ -846,8 +846,13 @@ export function canBeastAttack(state: GameState, beast: BoardBeast): boolean {
 
 /** Guardians / Guard-stance must be hit before face or non-guards. */
 export function hasEnemyGuard(state: GameState, foeSide: Side): boolean {
+  // Only living enemy beasts with Guard keyword or active Guard stance
   return sideOf(state, foeSide).beasts.some(
-    (b) => b && (b.guarding || b.keywords.includes('guard')),
+    (b) =>
+      !!b &&
+      b.hp > 0 &&
+      (b.guarding === true ||
+        (Array.isArray(b.keywords) && b.keywords.includes('guard'))),
   )
 }
 
