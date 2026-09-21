@@ -720,6 +720,9 @@ export function BattleScreen({ faction, onQuit }: Props) {
               <span className="text-xs font-black text-sky-200 tabular-nums">
                 {state.player.storm}/{state.player.stormMax || state.player.stormCap}
               </span>
+              <span className="text-[0.55rem] font-bold text-white/45 ml-1">
+                T{state.turn}
+              </span>
             </div>
             <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-black/50 border border-orange-400/30">
               <span className="text-orange-400 text-sm">🔥</span>
