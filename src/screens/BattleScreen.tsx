@@ -198,10 +198,12 @@ export function BattleScreen({ faction, onQuit }: Props) {
     if (!selectedBeast || selectedBeast.side !== 'player') return
     if (state.phase === 'hunt' && state.huntStep === 'declare') {
       setState((s) => toggleAttack(s, selectedBeast.slot))
+      playSfx('surge_bolt')
       setHint(`${cardById(selectedBeast.cardId).name} — Attack toggled.`)
       return
     }
     if (state.phase === 'main') {
+      playSfx('surge_bolt', 0.35)
       setHint('Begin Hunt (End Turn) to declare Attack.')
     }
   }
