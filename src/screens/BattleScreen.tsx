@@ -582,7 +582,7 @@ export function BattleScreen({ faction, onQuit }: Props) {
         state.phase !== 'gameover' &&
         state.active === 'player' &&
         !attacking && (
-          <div className="relative z-20 mx-3 mb-1 flex justify-center">
+          <div className="relative z-[60] mx-3 mb-1 flex justify-center">
             <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-2xl bg-[#2a1f14]/95 border-2 border-orange-500/70 shadow-[0_0_20px_rgba(251,146,60,0.35)]">
               {selectedBeast ? (
                 <>
@@ -622,7 +622,7 @@ export function BattleScreen({ faction, onQuit }: Props) {
                   onClick={playNonBeast}
                   className="action-chip action-chip-apex"
                 >
-                  Play {selectedCard!.name}
+                  ▶ Play {selectedCard!.name}
                 </button>
               )}
               <button
@@ -689,6 +689,31 @@ export function BattleScreen({ faction, onQuit }: Props) {
                       return
                     }
                     if (state.selectedHand === i) {
+                      // Relic / Storm: second tap plays instantly (no board slot)
+                      if (
+                        card.type !== 'beast' &&
+                        state.phase === 'main' &&
+                        state.active === 'player'
+                      ) {
+                        if (state.player.storm < card.cost) {
+                          setHint(
+                            `Need ${card.cost}⚡ for ${card.name} (have ${state.player.storm})`,
+                          )
+                          return
+                        }
+                        const next = playCard(state, i, 0)
+                        if (next !== state) {
+                          playSfx(
+                            card.type === 'storm' ? 'surge_bolt' : 'iron_clink',
+                            0.4,
+                          )
+                          setHint(`${card.name} played.`)
+                          setState(next)
+                        } else {
+                          setHint(`Can't play ${card.name} right now.`)
+                        }
+                        return
+                      }
                       openInspect(card, setInspect)
                     } else {
                       setState((s) => selectHand(s, i))
@@ -702,7 +727,7 @@ export function BattleScreen({ faction, onQuit }: Props) {
                       } else {
                         setHint(
                           state.player.storm >= card.cost
-                            ? `Play ${card.name} (${card.cost}⚡) from the action bar.`
+                            ? `Tap ${card.name} again to play (${card.cost}⚡) — no slot needed.`
                             : `Need ${card.cost}⚡ for ${card.name}`,
                         )
                       }
