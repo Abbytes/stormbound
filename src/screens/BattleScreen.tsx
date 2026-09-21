@@ -26,7 +26,7 @@ import { EnergyCostIcons } from '../components/EnergyPips'
 import type { SfxName } from '../game/audio'
 
 const TUTORIAL: string[] = [
-  'Put a Basic Pokémon from your hand into the Active Spot!',
+  'Put a Basic beast from your hand into the Active Spot!',
   'You can also Bench Basics (optional), then tap Start Battle.',
   'Tap the ⚡ button, then your Active (or Bench) to attach Energy.',
   'Tap Attack when your Active has enough ⚡, then End Turn.',
@@ -484,12 +484,12 @@ export function BattleScreen({ onQuit }: { onQuit: () => void }) {
       )}
       {game.uiMode === 'retreat' && (
         <div className="absolute bottom-36 left-0 right-0 text-center text-xs font-bold text-cyan-200 z-20">
-          Tap a Bench Pokémon to switch in
+          Tap a Bench beast to switch in
         </div>
       )}
       {game.uiMode === 'promotePick' && (
         <div className="absolute bottom-36 left-0 right-0 text-center text-xs font-bold text-violet-200 z-20">
-          Your Active was KO'd — pick a Bench Pokémon!
+          Your Active was KO'd — pick a Bench beast!
         </div>
       )}
       {game.phase === 'setup' && selectedDef && selectedDef.stage !== 'basic' && (

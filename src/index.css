@@ -18,7 +18,7 @@ html, body, #root {
     #07070a;
 }
 
-/* Pokémon TCG Pocket–style circular pastel playmat */
+/* Pocket-style circular pastel playmat */
 .pocket-playmat {
   background:
     radial-gradient(ellipse 90% 55% at 50% 48%,

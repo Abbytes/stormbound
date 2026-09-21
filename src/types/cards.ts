@@ -29,7 +29,7 @@ export interface CardDef {
   ability?: AbilityDef
   rarity: Rarity
   art: string
-  /** Points awarded when this Pokémon is KO'd */
+  /** Points awarded when this beast is KO'd */
   koPoints: 1 | 2
   /** Can attack the turn it is played */
   swift?: boolean

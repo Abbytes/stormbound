@@ -1,6 +1,6 @@
 # Stormbound (Pocket)
 
-Mobile-first web TCG inspired by Pokémon TCG Pocket.
+Mobile-first web TCG — Stormbound beasts, Active/Bench, Pocket-style phone app.
 
 **Live:** https://abbytes.github.io/stormbound/
 

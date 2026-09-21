@@ -639,7 +639,7 @@ function beginPromote(g: GameState, side: Side) {
     aiPromote(g)
   } else {
     g.uiMode = 'promotePick'
-    toast(g, 'Choose a Bench Pokémon to promote!', 'info')
+    toast(g, 'Choose a Bench beast to promote!', 'info')
   }
 }
 

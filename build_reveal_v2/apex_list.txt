@@ -1,0 +1,2 @@
+file '/workspace/stormbound/build_reveal_v2/seg_apex_flash.mp4'
+file '/workspace/stormbound/build_reveal_v2/seg_apex_main.mp4'

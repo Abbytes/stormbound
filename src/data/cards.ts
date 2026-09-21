@@ -43,7 +43,7 @@ export const CARDS: CardDef[] = [
     attacks: [{ name: 'Solar Bolt', energyCost: 2, damage: 70 }],
     ability: {
       name: 'Dawnflare',
-      description: 'On evolve: attach 1 Energy to this Pokémon.',
+      description: 'On evolve: attach 1 Energy to this beast.',
       trigger: 'onEvolve',
     },
     rarity: 'apex',
@@ -60,7 +60,7 @@ export const CARDS: CardDef[] = [
     attacks: [{ name: 'Antler Guard', energyCost: 1, damage: 20 }],
     ability: {
       name: 'Ward',
-      description: 'The first damage this Pokémon takes each turn is reduced to 0.',
+      description: 'The first damage this beast takes each turn is reduced to 0.',
       trigger: 'ward',
     },
     rarity: 'rare',
