@@ -39,7 +39,7 @@ export function BinderScreen({ onBack }: Props) {
   }
 
   return (
-    <div className="min-h-dvh flex flex-col bg-[#1a120c] text-white">
+    <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-[#0a0a0c] text-white">
       <header className="flex items-center justify-between px-4 pt-4 pb-2">
         <button
           type="button"
@@ -81,7 +81,7 @@ export function BinderScreen({ onBack }: Props) {
                 <div key={id} className="flex justify-center">
                   <CardFace
                     card={card}
-                    size="md"
+                    size="binder"
                     onClick={() => openInspect(card, setInspect)}
                   />
                 </div>

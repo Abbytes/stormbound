@@ -6,6 +6,9 @@ import {
 } from '../data/cards'
 import type { CardDef, Faction, Keyword } from '../types/cards'
 
+export const BOARD_SLOTS = 3
+export const BINDER_MAX_HP = 20
+
 export type Side = 'player' | 'enemy'
 export type Phase = 'dawn' | 'draw' | 'main' | 'hunt' | 'dusk' | 'gameover'
 export type HuntStep = 'declare' | 'block' | 'resolve' | 'done'
@@ -97,7 +100,7 @@ function makePlayer(
     hand,
     deck,
     discard: [],
-    beasts: [null, null, null, null, null],
+    beasts: [null, null, null],
     relics: [],
     binderAbilityUsed: false,
     faction,
@@ -248,7 +251,7 @@ function runDraw(state: GameState): GameState {
 
 function hasAdjacentBeast(beasts: (BoardBeast | null)[], slot: number): boolean {
   if (slot > 0 && beasts[slot - 1]) return true
-  if (slot < 4 && beasts[slot + 1]) return true
+  if (slot < 2 && beasts[slot + 1]) return true
   return false
 }
 
@@ -434,7 +437,7 @@ function resolveApex(state: GameState, side: Side, slot: number): GameState {
   } else if (card.id === 30) {
     const foeSide = otherSide(side)
     const foe = sideOf(next, foeSide)
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 3; i++) {
       if (foe.beasts[i]) {
         next = dealDamage(next, foeSide, i, 2, 'lightning')
       }
@@ -940,6 +943,31 @@ export function runEnemyTurn(state: GameState): GameState {
   }
 
   return next
+}
+
+
+export function selectBeast(state: GameState, uid: string | null): GameState {
+  return { ...state, selectedBeastUid: uid, selectedHand: null }
+}
+
+/** End Turn: main → hunt declare; hunt declare → resolve combat (all attackers if none marked). */
+export function endTurn(state: GameState): GameState {
+  if (state.phase === 'gameover' || state.active !== 'player') return state
+  if (state.phase === 'main') {
+    return startHunt(state)
+  }
+  if (state.phase === 'hunt' && state.huntStep === 'declare') {
+    const anyMarked = state.player.beasts.some((b) => b?.attacking)
+    let next = state
+    if (!anyMarked) {
+      const beasts = state.player.beasts.map((b) =>
+        b && !b.summonSick ? { ...b, attacking: true } : b,
+      )
+      next = { ...state, player: { ...state.player, beasts } }
+    }
+    return confirmAttackers(next)
+  }
+  return state
 }
 
 export function selectHand(state: GameState, index: number | null): GameState {
