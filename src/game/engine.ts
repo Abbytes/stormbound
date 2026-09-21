@@ -46,6 +46,7 @@ export interface PlayerState {
   binderId: number
   binderHp: number
   storm: number
+  stormMax: number
   stormCap: number
   stormCharges: number
   hand: number[]
@@ -118,6 +119,7 @@ function makePlayer(
     binderId,
     binderHp: 20,
     storm: 0,
+    stormMax: 0,
     stormCap: 8,
     stormCharges: 0,
     hand,
@@ -242,9 +244,12 @@ function checkWin(state: GameState): GameState {
 export function runDawn(state: GameState): GameState {
   if (state.phase === 'gameover') return state
   const active = sideOf(state, state.active)
-  const storm = Math.min(active.stormCap, active.storm + 1)
+  // Hearthstone-style: crystals ramp permanently; refill to max each Dawn
+  const stormMax = Math.min(active.stormCap, active.stormMax + 1)
+  const storm = stormMax
   const nextActive: PlayerState = {
     ...active,
+    stormMax,
     storm,
     binderAbilityUsed: false,
     relics: active.relics.map((r) => ({ ...r, usedThisTurn: false })),
@@ -272,7 +277,7 @@ export function runDawn(state: GameState): GameState {
     [state.active]: nextActive,
   }
   const who = state.active === 'player' ? 'Your' : 'Enemy'
-  next = pushLog(next, `${who} Dawn — Storm ${storm}.`)
+  next = pushLog(next, `${who} Dawn — Storm ${storm}/${stormMax}.`)
   next = pushFx(next, `${who.toUpperCase()} DAWN`, 'phase')
   return runDraw(next)
 }
